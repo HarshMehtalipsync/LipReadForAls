@@ -91,9 +91,22 @@ var SF=[0,1,2,3,5,6,8];
 function shapesReady(){ return !!S.shapes&&SHAPES.every(function(s){return S.shapes[s.k];}); }
 function shapeSpread(){ return SF.map(function(_,i){ var v=SHAPES.map(function(s){return S.shapes[s.k][i];}), m=v.reduce(function(a,b){return a+b;},0)/v.length;
   return Math.sqrt(v.reduce(function(a,b){return a+(b-m)*(b-m);},0)/v.length)+0.004; }); }
+function shapeOf(r,sp){ var best="N",bd=1e9; SHAPES.forEach(function(s){ var c=S.shapes[s.k],d=0;
+    for(var i=0;i<SF.length;i++){ var e=(r[SF[i]]-c[i])/sp[i]; d+=e*e; } if(d<bd){bd=d;best=s.k;} }); return best; }
+/* The shape the mouth is in right now, for the live readout on the Training page. */
+function liveShape(){
+  if(!shapesReady()||!buf.length) return ""; var s=buf[buf.length-1]; if(!s.m||performance.now()-s.t>600) return "";
+  var r=new Float32Array(F); for(var i=0;i<F;i++) r[i]=s.m[i]/s.m[F]; return shapeOf(r,shapeSpread());
+}
+/* Pairs of taught shapes that are too alike to tell apart reliably. */
+function shapeCheck(){
+  if(!shapesReady()) return []; var sp=shapeSpread(), out=[];
+  for(var a=0;a<SHAPES.length;a++) for(var b=a+1;b<SHAPES.length;b++){ var x=S.shapes[SHAPES[a].k],y=S.shapes[SHAPES[b].k],d=0;
+    for(var i=0;i<SF.length;i++){ var e=(x[i]-y[i])/sp[i]; d+=e*e; } if(Math.sqrt(d)<1.3) out.push(SHAPES[a].g+" and "+SHAPES[b].g); }
+  return out;
+}
 function shapeSeq(still){
-  var sp=shapeSpread(), lab=still.map(function(r){ var best="N",bd=1e9; SHAPES.forEach(function(s){ var c=S.shapes[s.k],d=0;
-      for(var i=0;i<SF.length;i++){ var e=(r[SF[i]]-c[i])/sp[i]; d+=e*e; } if(d<bd){bd=d;best=s.k;} }); return best; });
+  var sp=shapeSpread(), lab=still.map(function(r){ return shapeOf(r,sp); });
   lab=lab.map(function(x,i){ var a=lab[i-1],b=lab[i+1]; return (a&&b&&a===b&&a!==x)?a:x; });      // drop one-frame flickers
   var runs=[]; lab.forEach(function(x){ var l=runs[runs.length-1]; if(l&&l.k===x) l.n++; else runs.push({k:x,n:1}); });
   runs=runs.filter(function(r,i){ return r.n>=2||i===0||i===runs.length-1; });                      // a shape must last 2 frames
@@ -112,8 +125,32 @@ function vowelShapes(code){
   }
   return null;
 }
-/* The mouth shapes a Gujarati sentence should produce, in order. */
+function isGujarati(text){ return /[\u0A80-\u0AFF]/.test(String(text)); }
+/* A rough guess at mouth shapes from Latin spelling. Meant for Gujarati typed in English letters
+   ("mane paani joie chhe"). For real English words it is only approximate: English spelling is not phonetic. */
+function latinShapes(text){
+  var out=[]; function push(k){ if(out[out.length-1]!==k) out.push(k); }
+  String(text).toLowerCase().replace(/[^a-z\s]/g," ").split(/\s+/).filter(Boolean).forEach(function(w){
+    var i=0;
+    while(i<w.length){ var two=w.substr(i,2), c=w[i];
+      if(two==="aa"){ push("A"); i+=2; }
+      else if(two==="ai"){ push("A"); push("I"); i+=2; }
+      else if(two==="au"){ push("A"); push("U"); i+=2; }
+      else if(two==="ee"||two==="ie"||two==="ea"){ push("I"); i+=2; }
+      else if(two==="oo"||two==="ou"){ push("U"); i+=2; }
+      else if(c==="a"){ push(i===w.length-1&&w.length>2?"A":"N"); i++; }
+      else if(c==="i"||c==="e"||c==="y"){ push("I"); i++; }
+      else if(c==="o"||c==="u"){ push("U"); i++; }
+      else if(c==="p"||c==="b"||c==="m"||c==="f"){ push("M"); i++; }
+      else if(c==="v"||c==="w"){ push("U"); i++; }
+      else i++;
+    }
+  });
+  return out;
+}
+/* The mouth shapes a sentence should produce, in order. */
 function textShapes(text){
+  if(!isGujarati(text)) return latinShapes(text);
   var out=[]; function push(k){ if(out[out.length-1]!==k) out.push(k); }
   String(text).replace(/[^઀-૿\s]/g," ").split(/\s+/).filter(Boolean).forEach(function(w){
     var ch=Array.from(w), i=0;
@@ -168,8 +205,8 @@ async function freeRead(ft,ctx){
       else { var j=await r.json(); (j.candidates||[]).forEach(function(g){ g=String(g||"").trim(); if(g&&!cands[g]&&/[઀-૿]/.test(g)) cands[g]={g:g,m:"",src:"model"}; }); }
     }catch(e){ note="Language model problem: "+String(e.message||e); }
   } else note=(cloud.state==="signedout"?"Not signed in":"The cloud is not connected ("+(cloud.msg||cloud.state)+")")+", so it can only choose among the sentences on the Training page.";
-  var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.fit=shapeFit(obs,textShapes(g)); return c; }).sort(function(a,b){return a.fit-b.fit;});
-  return {shapes:obs,ranked:ranked,note:note};
+  var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.exp=textShapes(g); c.fit=shapeFit(obs,c.exp); return c; }).sort(function(a,b){return a.fit-b.fit;});
+  return {shapes:obs,ranked:ranked,note:note,frames:ft.still.length,secs:ft.secs};
 }
 
 /* ---------- storage ---------- */
@@ -476,7 +513,8 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
   cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
-  shapeList:SHAPES,shapesReady:shapesReady,hasShape:function(k){return !!(S.shapes&&S.shapes[k]);},teachShape:teachShape,freeRead:freeRead,textShapes:textShapes,shapeFit:shapeFit,
+  shapeList:SHAPES,shapesReady:shapesReady,hasShape:function(k){return !!(S.shapes&&S.shapes[k]);},teachShape:teachShape,freeRead:freeRead,textShapes:textShapes,shapeFit:shapeFit,liveShape:liveShape,shapeCheck:shapeCheck,isGujarati:isGujarati,
+  letters:function(seq){ var m={}; SHAPES.forEach(function(s){m[s.k]=s.g;}); return seq.map(function(k){return m[k];}).join(" · ")||"none"; },
   speak:speak,say:say,retryVoice:retryVoice,voices:function(){loadVoices();return voices.map(function(v){return v.lang;});},prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
   _onSample:onSample,_fakeOn:function(v){cam.on=v;},_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

@@ -28,6 +28,13 @@
     <div class="alts" id="alts"></div>
   </section>
 
+  <section class="step" id="diagWrap" hidden>
+    <h2>What it saw</h2>
+    <p class="note" id="diagTop"></p>
+    <ul class="hist" id="diag"></ul>
+    <p class="note">Each row is a sentence it considered, the mouth shapes that sentence should produce, and how well those fit what it saw.</p>
+  </section>
+
   <section class="step" id="histWrap" hidden>
     <h2>Said so far</h2>
     <ul class="hist" id="hist"></ul>
@@ -40,7 +47,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=11"></script>
+<script src="lip.js?v=12"></script>
 <script>
 (function(){
 "use strict";
@@ -73,6 +80,7 @@ var opts={video:$("cam"),view:$("view"),auto:false,
   miss:function(err){ show(err==="face"?"I could not see the face well enough. Try again.":"I did not see any mouthing. Try again.","",true); status("Ready."); },
   segment:function(ft){
     if($("free").checked){ freeRead(ft); return; }
+    $("diagWrap").hidden=true;
     $("altTitle").textContent="Not right? Tap the one that was meant";
     var r=Lip.classify(ft.seq);
     if(!r){ show("Teach at least 2 sentences on the Training page first.","",true); status("Ready."); return; }
@@ -90,6 +98,12 @@ function freeRead(ft){
     $("altTitle").textContent="Tap the one that was meant to speak it";
     alts(top.map(function(c){ return {c:{g:c.g,m:(c.m?c.m+" · ":"")+(c.src==="model"?"suggested by the language model":"from the sentence list")+" · fit "+Math.max(0,Math.round((1-c.fit)*100))+"%"}}; }));
     $("voice").textContent=r.note; status("Ready.");
+    $("diagWrap").hidden=false;
+    $("diagTop").textContent="Saw these shapes, in order: "+Lip.letters(r.shapes)+". ("+r.frames+" frames over "+r.secs.toFixed(1)+" s, "+r.ranked.length+" sentences considered.)";
+    var ul=$("diag"); ul.textContent="";
+    r.ranked.slice(0,8).forEach(function(c){ var li=document.createElement("li"), a=document.createElement("span"), b=document.createElement("time");
+      a.style.overflowWrap="anywhere"; a.textContent=c.g+"  →  "+Lip.letters(c.exp)+(Lip.isGujarati(c.g)?"":"  (guessed from English letters)");
+      b.textContent="fit "+Math.max(0,Math.round((1-c.fit)*100))+"%"; li.append(a,b); ul.append(li); });
   }).catch(function(e){ show("Free reading failed: "+String(e.message||e),"",true); status("Ready."); });
 }
 $("rec").addEventListener("click",async function(){

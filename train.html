@@ -36,16 +36,19 @@
     <p class="note">Experimental. Teach these five shapes once and the Use page can try to read sentences that were never taught. Press a button, then hold that mouth shape still for two seconds.</p>
     <div class="cues" id="shapes"></div>
     <div class="status" id="shapeStatus" role="status" aria-live="polite"></div>
+    <p id="shapeNow" style="font-size:17px;font-weight:500" hidden></p>
+    <p class="note" id="shapeWarn"></p>
   </section>
 
   <section class="step">
     <h2>Add a sentence</h2>
     <form id="addForm" class="row" novalidate>
-      <div class="field"><label for="newG">Gujarati, as he says it</label><input class="g" id="newG" lang="gu" autocomplete="off"></div>
+      <div class="field"><label for="newG">The sentence exactly as it is mouthed</label><input class="g" id="newG" autocomplete="off"></div>
       <div class="field"><label for="newM">Meaning (optional)</label><input id="newM" autocomplete="off"></div>
       <button class="btn" type="submit">Add</button>
     </form>
     <div class="status" id="addStatus" role="status"></div>
+    <p class="note">Gujarati script works best. Gujarati typed in English letters, such as “mane paani joie chhe”, also works for matching, but more roughly, and it cannot be spoken properly. An English translation will not match: type what the mouth actually says.</p>
   </section>
 
   <section class="step">
@@ -87,7 +90,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=11"></script>
+<script src="lip.js?v=12"></script>
 <script>
 (function(){
 "use strict";
@@ -115,14 +118,21 @@ function renderShapes(){
     var acts=document.createElement("div"); acts.className="acts"; acts.append(b); d.append(g,r,k,acts); box.append(d);
   });
 }
+setInterval(function(){
+  var el=$("shapeNow"); if(!Lip.isOn()||!Lip.shapesReady()){ el.hidden=true; return; }
+  var k=Lip.liveShape(); el.hidden=false; el.textContent="Mouth shape it sees right now: "+(k?Lip.letters([k]):"no face");
+},200);
 function render(){
   renderShapes();
+  var close=Lip.shapeCheck(); $("shapeWarn").textContent=!Lip.shapesReady()?"":close.length?"These taught shapes look too alike to tell apart: "+close.join("; ")+". Teach them again with a bigger difference."
+    :"All five shapes are taught and look different from each other. With the camera on, make each shape and check that the line above follows you.";
   var box=$("cues"); box.textContent="";
   Lip.state.cues.forEach(function(c){
     var n=Lip.clips(c).length, d=document.createElement("div"); d.className="cue";
     var g=document.createElement("div"); g.className="g"; g.lang="gu"; g.textContent=c.g;
     var r=document.createElement("div"); r.className="r"; r.textContent=c.m;
     var k=document.createElement("div"); k.className="n"; k.textContent=n+(n===1?" clip":" clips");
+    var e=document.createElement("div"); e.className="r"; e.textContent="Shapes: "+Lip.letters(Lip.textShapes(c.g))+(Lip.isGujarati(c.g)?"":" (guessed from English letters)");
     var acts=document.createElement("div"); acts.className="acts";
     var t=document.createElement("button"); t.type="button"; t.className="btn small"+(target===c?" armed":""); t.dataset.k=c.k; t.textContent=target===c?"Mouth it now…":"Teach";
     t.disabled=!Lip.isOn();
@@ -132,7 +142,7 @@ function render(){
     var x=document.createElement("button"); x.type="button"; x.className="btn small quiet"; x.textContent="Delete";
     x.addEventListener("click",function(){ if(x.dataset.sure!=="1"){ x.dataset.sure="1"; x.textContent="Tap again to delete"; setTimeout(function(){x.dataset.sure="";x.textContent="Delete";},4000); return; }
       if(target===c) target=null; Lip.removeCue(c); render(); });
-    acts.append(t,u,x); d.append(g,r,k,acts); box.append(d);
+    acts.append(t,u,x); d.append(g,r,e,k,acts); box.append(d);
   });
   selfCheck();
 }
