@@ -386,9 +386,14 @@ function drawRoll(c,now){
   pts.forEach(function(s,i){ var px=12+(s.t-(now-3000))/3000*(W-24), py=H-16-(ys[i]-mn)/rg*(H-32); if(i) x.lineTo(px,py); else x.moveTo(px,py); });
   x.stroke();
 }
-function drawView(c,pts,w,h){
-  if(!c) return; if(c.width!==w||c.height!==h){c.width=w;c.height=h;} var x=c.getContext("2d"); x.drawImage(wc,0,0); if(!pts) return;
-  x.fillStyle=css("--dot"); var r=Math.max(2,w/200);
+/* The camera picture is the <video> element itself, shown on the page. This canvas sits on top of it and
+   only draws the lip dots, mapped back from the (possibly turned) working picture to the video. */
+function drawView(c,pts,v){
+  if(!c||!v.videoWidth) return; var vw=v.videoWidth,vh=v.videoHeight; if(c.width!==vw||c.height!==vh){c.width=vw;c.height=vh;}
+  var x=c.getContext("2d"); x.setTransform(1,0,0,1,0,0); x.clearRect(0,0,vw,vh); if(!pts) return;
+  var k=vw/(rot.deg%180!==0?wc.height:wc.width);
+  x.translate(vw/2,vh/2); x.rotate(-rot.deg*Math.PI/180); x.scale(k,k); x.translate(-wc.width/2,-wc.height/2);
+  x.fillStyle=css("--dot"); var r=Math.max(2,wc.width/200);
   LO.concat(LI).forEach(function(i){x.beginPath();x.arc(pts[2*i],pts[2*i+1],r,0,6.3);x.fill();});
 }
 /* The tracker only finds upright faces. If he is lying down or the device is on its side, the face is
@@ -411,14 +416,20 @@ function showRate(now,found){
   else if(fps<10) o.status("Tracking at "+fps.toFixed(0)+" frames a second. That is too slow to read lips well on this device.",true);
   else o.status("Tracking at "+fps.toFixed(0)+" frames a second.",false);
 }
+function nudge(){ var v=cam.o&&cam.o.video; if(v&&v.paused){ try{ var p=v.play(); if(p&&p.catch) p.catch(function(){}); }catch(e){} } }
 async function loop(){
   if(!cam.on) return; var v=cam.o.video;
+  if(!(v.readyState>=2&&v.videoWidth)){
+    var waited=performance.now()-cam.since;
+    if(waited>2500&&!cam.warned){ cam.warned=true; nudge();
+      if(cam.o.status) cam.o.status("The camera is on, but its picture is not playing. Tap the picture area once. If the phone is in Low Power Mode, turn that off.",true); }
+  } else if(cam.warned){ cam.warned=false; if(cam.o.status) cam.o.status("Picture is playing.",false); }
   if(!cam.working&&v.readyState>=2&&v.videoWidth){
     cam.working=true;
     try{
       grab(v);
       var pts=await track(wc), now=performance.now();
-      onSample(now,pts); drawView(cam.o.view,pts,wc.width,wc.height); drawRoll(cam.o.roll,now); showRate(now,!!pts); turn(!!pts);
+      onSample(now,pts); drawView(cam.o.view,pts,v); drawRoll(cam.o.roll,now); showRate(now,!!pts); turn(!!pts);
     }catch(e){}
     cam.working=false;
   }
@@ -442,7 +453,11 @@ async function start(o){
   try{ await within(tracker(),45000,"The lip tracker did not load in time. Check the connection, then reload this page."); }
   catch(e){ s.getTracks().forEach(function(t){t.stop();}); return String(e.message||e); }
   step("Starting the picture…");
-  o.video.srcObject=s; cam.stream=s; try{ await within(o.video.play(),4000,"slow"); }catch(e){}
+  var v=o.video; v.muted=true; v.autoplay=true; v.playsInline=true; v.setAttribute("playsinline",""); v.setAttribute("webkit-playsinline",""); v.setAttribute("muted","");
+  v.srcObject=s; cam.stream=s; try{ await within(v.play(),4000,"slow"); }catch(e){}
+  if(!v.__wired){ v.__wired=true; v.addEventListener("pause",function(){ if(cam.on) setTimeout(nudge,150); });
+    (v.parentNode||v).addEventListener("click",nudge); document.addEventListener("visibilitychange",function(){ if(!document.hidden&&cam.on) nudge(); }); }
+  cam.since=performance.now(); cam.warned=false;
   buf=[]; det.state="idle"; det.ema=null; det.onCount=0; rate.t=0; rate.n=0; rate.f=0; cam.on=true;
   try{ if(navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){cam.wake=w;},function(){}); }catch(e){}
   loop(); return "";

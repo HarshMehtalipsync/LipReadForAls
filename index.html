@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lip Cue</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <main class="wrap">
@@ -21,8 +21,7 @@
   <button class="btn big" id="rec" type="button">Record</button>
   <div class="status" id="status" role="status" aria-live="polite">Camera is off.</div>
 
-  <div class="live" id="liveWrap" hidden><canvas id="view"></canvas></div>
-  <video id="cam" class="hid" playsinline muted></video>
+  <div class="live" id="liveWrap" hidden><video id="cam" playsinline muted autoplay></video><canvas id="view"></canvas></div>
 
   <section class="step" id="altWrap" hidden>
     <h2 id="altTitle">Not right? Tap the one that was meant</h2>
@@ -41,7 +40,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=10"></script>
+<script src="lip.js?v=11"></script>
 <script>
 (function(){
 "use strict";
