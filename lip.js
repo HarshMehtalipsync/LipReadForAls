@@ -267,8 +267,8 @@ function silence(){ var n=800,b=new ArrayBuffer(44+n),v=new DataView(b); functio
   w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVEfmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
   v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true); w(36,"data"); v.setUint32(40,n,true);
   for(var i=0;i<n;i++) v.setUint8(44+i,128); return URL.createObjectURL(new Blob([b],{type:"audio/wav"})); }
-function prime(){
-  try{ if(!player){ player=new Audio(); player.setAttribute("playsinline",""); player.src=silence(); var pr=player.play(); if(pr&&pr.catch) pr.catch(function(){}); } }catch(e){}
+function prime(voiceOnly){
+  try{ if(!voiceOnly&&!player){ player=new Audio(); player.setAttribute("playsinline",""); player.src=silence(); var pr=player.play(); if(pr&&pr.catch) pr.catch(function(){}); } }catch(e){}
   if(!synth||!window.SpeechSynthesisUtterance) return;
   try{ loadVoices(); if(!synth.speaking){ var u=new SpeechSynthesisUtterance(" "); u.volume=0; synth.speak(u); } }catch(e){}
 }
@@ -413,16 +413,27 @@ async function loop(){
   }
   requestAnimationFrame(loop);
 }
+function within(promise,ms,msg){
+  return new Promise(function(res,rej){ var t=setTimeout(function(){rej(new Error(msg));},ms);
+    promise.then(function(v){clearTimeout(t);res(v);},function(e){clearTimeout(t);rej(e);}); });
+}
+/* Starts the camera and the tracker. Every step has a time limit and reports itself through o.step,
+   so a stall shows where it happened instead of hanging silently. Returns "" or an error message. */
 async function start(o){
-  cam.o=o; prime();
+  cam.o=o; prime(true); var step=o.step||function(){};
   if(location.protocol!=="https:"&&location.hostname!=="localhost"&&location.hostname!=="127.0.0.1") return "This page must be opened from an https address for the camera to work.";
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia) return "This browser does not offer a camera to web pages.";
-  var s; try{ s=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false}); }
-  catch(e){ return "The camera could not be opened. Allow camera access for this site in the browser settings, then try again."; }
-  try{ await tracker(); }catch(e){ s.getTracks().forEach(function(t){t.stop();}); return String(e.message||e); }
-  o.video.srcObject=s; cam.stream=s; try{ await o.video.play(); }catch(e){}
+  var s; step("Asking for the camera…");
+  try{ s=await within(navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:640},height:{ideal:480}},audio:false}),25000,"timeout"); }
+  catch(e){ return e.message==="timeout"?"The camera did not answer. Close other apps or tabs that use the camera, then reload this page."
+    :"The camera could not be opened ("+(e.name||"error")+"). Allow camera access for this site in the browser settings, then try again."; }
+  step("Loading the lip tracker…");
+  try{ await within(tracker(),45000,"The lip tracker did not load in time. Check the connection, then reload this page."); }
+  catch(e){ s.getTracks().forEach(function(t){t.stop();}); return String(e.message||e); }
+  step("Starting the picture…");
+  o.video.srcObject=s; cam.stream=s; try{ await within(o.video.play(),4000,"slow"); }catch(e){}
   buf=[]; det.state="idle"; det.ema=null; det.onCount=0; rate.t=0; rate.n=0; rate.f=0; cam.on=true;
-  try{ if(navigator.wakeLock) cam.wake=await navigator.wakeLock.request("screen"); }catch(e){}
+  try{ if(navigator.wakeLock) navigator.wakeLock.request("screen").then(function(w){cam.wake=w;},function(){}); }catch(e){}
   loop(); return "";
 }
 function stop(){

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lip Cue Training</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <main class="wrap">
@@ -88,7 +88,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js"></script>
+<script src="lip.js?v=9"></script>
 <script>
 (function(){
 "use strict";
@@ -138,6 +138,7 @@ function render(){
   selfCheck();
 }
 var opts={video:$("cam"),view:$("view"),roll:$("roll"),auto:true,
+  step:function(msg){ var s=$("camStatus"); s.textContent=msg; s.classList.remove("bad"); },
   status:function(msg,bad){ var s=$("camStatus"), deg=Lip.rotation(); s.textContent=msg+(deg?" Picture turned "+deg+"° to find the face.":""); s.classList.toggle("bad",!!bad); },
   miss:function(err,manual){ if(target||manual) status(err==="face"?"The face was not followed well enough. Try again.":"No clear mouthing was seen. Try again.",true); },
   segment:function(ft){

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Lip Cue</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <main class="wrap">
@@ -41,7 +41,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js"></script>
+<script src="lip.js?v=9"></script>
 <script>
 (function(){
 "use strict";
@@ -69,6 +69,7 @@ function begin(){ mode="recording"; button(); Lip.beginCapture(); status("Record
   clearTimeout(timer); timer=setTimeout(function(){ if(mode==="recording") end(); },7000); }
 function end(){ clearTimeout(timer); mode="ready"; button(); status("Reading…"); Lip.endCapture(); }
 var opts={video:$("cam"),view:$("view"),auto:false,
+  step:function(msg){ status(msg); },
   status:function(msg,bad){ if(mode==="ready") status(msg,bad); },
   miss:function(err){ show(err==="face"?"I could not see the face well enough. Try again.":"I did not see any mouthing. Try again.","",true); status("Ready."); },
   segment:function(ft){
@@ -93,7 +94,7 @@ function freeRead(ft){
   }).catch(function(e){ show("Free reading failed: "+String(e.message||e),"",true); status("Ready."); });
 }
 $("rec").addEventListener("click",async function(){
-  Lip.prime();
+  Lip.prime(mode==="off");                       // sound is unlocked on a later tap, not while the camera is opening
   if(mode==="recording"){ end(); return; }
   if(mode==="ready"){ begin(); return; }
   mode="starting"; button(); status("Starting the camera…");
