@@ -86,7 +86,7 @@ $("rec").addEventListener("click",async function(){
 });
 $("off").addEventListener("click",function(){ Lip.stop(); mode="off"; button(); $("liveWrap").hidden=true; $("off").hidden=true; status("Camera is off."); });
 $("voiceTest").addEventListener("click",function(){
-  Lip.prime(); $("voice").textContent="Speaking…";
+  Lip.prime(); Lip.retryVoice(); $("voice").textContent="Speaking…";
   var c=Lip.state.cues[0]; Lip.say(c?c.g:"તમે કેમ છો?").then(function(note){ var v=Lip.voices();
     $("voice").textContent=note+" This device offers "+v.length+" voices"+(v.length?", including "+(v.filter(function(l){return /^(gu|hi)/i.test(l);}).join(", ")||"none for Gujarati or Hindi"):"")+"."; });
 });
