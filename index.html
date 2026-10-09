@@ -14,6 +14,7 @@
   <section class="step readout" aria-live="polite">
     <div class="said idle" id="said" lang="gu">Press Record, mouth a sentence without sound, then press Stop.</div>
     <div class="mean" id="mean"></div>
+    <p class="note" id="voice" role="status"></p>
   </section>
 
   <button class="btn big" id="rec" type="button">Record</button>
@@ -25,7 +26,6 @@
   <section class="step" id="altWrap" hidden>
     <h2>Not right? Tap the one that was meant</h2>
     <div class="alts" id="alts"></div>
-    <p class="note" id="voice"></p>
   </section>
 
   <section class="step" id="histWrap" hidden>
@@ -33,7 +33,8 @@
     <ul class="hist" id="hist"></ul>
   </section>
 
-  <div class="row"><button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button>
+  <div class="row"><button class="btn small quiet" id="voiceTest" type="button">Test the voice</button>
+    <button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button>
     <a class="btn small quiet" id="signin" href="/.auth/login/aad?post_login_redirect_uri=/" hidden>Sign in to load saved training</a></div>
   <p class="note" id="cloudNote"></p>
 </main>
@@ -49,7 +50,8 @@ function status(msg,bad){ var s=$("status"); s.textContent=msg; s.classList.togg
 function show(text,mean,idle){ var s=$("said"); s.textContent=text; s.classList.toggle("idle",!!idle); $("mean").textContent=mean||""; }
 function button(){ var b=$("rec"); b.textContent=mode==="recording"?"Stop":"Record"; b.classList.toggle("armed",mode==="recording"); b.disabled=mode==="starting"; }
 function say(c,log){
-  show(c.g,c.m,false); $("voice").textContent=Lip.speak(c.g);
+  show(c.g,c.m,false); $("voice").textContent="";
+  Lip.say(c.g).then(function(note){ $("voice").textContent=note; });
   if(log){ var li=document.createElement("li"), a=document.createElement("span"), t=document.createElement("time");
     a.lang="gu"; a.textContent=c.g; t.textContent=new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
     li.append(a,t); $("hist").prepend(li); while($("hist").children.length>8) $("hist").lastChild.remove(); $("histWrap").hidden=false; }
@@ -74,6 +76,7 @@ var opts={video:$("cam"),view:$("view"),auto:false,
     say(r.ranked[0].c,true); alts(r.ranked.slice(1,4)); status(r.close?"Ready. That one was close to the next match.":"Ready.");
   }};
 $("rec").addEventListener("click",async function(){
+  Lip.prime();
   if(mode==="recording"){ end(); return; }
   if(mode==="ready"){ begin(); return; }
   mode="starting"; button(); status("Starting the camera…");
@@ -82,6 +85,11 @@ $("rec").addEventListener("click",async function(){
   $("liveWrap").hidden=false; $("off").hidden=false; begin();
 });
 $("off").addEventListener("click",function(){ Lip.stop(); mode="off"; button(); $("liveWrap").hidden=true; $("off").hidden=true; status("Camera is off."); });
+$("voiceTest").addEventListener("click",function(){
+  Lip.prime(); $("voice").textContent="Speaking…";
+  var c=Lip.state.cues[0]; Lip.say(c?c.g:"તમે કેમ છો?").then(function(note){ var v=Lip.voices();
+    $("voice").textContent=note+" This device offers "+v.length+" voices"+(v.length?", including "+(v.filter(function(l){return /^(gu|hi)/i.test(l);}).join(", ")||"none for Gujarati or Hindi"):"")+"."; });
+});
 function idle(){ if(mode!=="recording") show(Lip.taught()<2?"Nothing is taught yet. Open the Training page and teach at least 2 sentences.":"Press Record, mouth a sentence without sound, then press Stop.","",true); }
 Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout"; $("cloudNote").textContent=c.state==="error"?"Cloud problem: "+c.msg:c.state==="noaccess"?"Signed in as "+c.user+", but this account is not on the access list.":(c.on?c.msg:""); });
 Lip.load(); idle();

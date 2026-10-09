@@ -165,17 +165,47 @@ function loadVoices(){ try{voices=synth?synth.getVoices():[];}catch(e){voices=[]
 if(synth){ loadVoices(); try{synth.addEventListener("voiceschanged",loadVoices);}catch(e){} }
 function pick(pref){ return voices.filter(function(v){return String(v.lang||"").toLowerCase().replace("_","-").indexOf(pref)===0;})[0]||null; }
 function toDeva(s){ return s.replace(/[઀-૿]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-0x180);}); }
-function prime(){ if(!synth||!window.SpeechSynthesisUtterance) return; try{ var u=new SpeechSynthesisUtterance(" "); u.volume=0; synth.speak(u);}catch(e){} }
-function speak(text){
+/* Sound on phones only plays after a tap. prime() is called from every tap that may lead to speech:
+   it wakes the device voice and unlocks one audio player that the cloud voice later reuses. */
+var player=null, clips={}, cloudVoice=null;   // cloudVoice: null = not tried yet, true = works, false = not available
+function silence(){ var n=800,b=new ArrayBuffer(44+n),v=new DataView(b); function w(o,s){for(var i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}
+  w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVEfmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
+  v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true); w(36,"data"); v.setUint32(40,n,true);
+  for(var i=0;i<n;i++) v.setUint8(44+i,128); return URL.createObjectURL(new Blob([b],{type:"audio/wav"})); }
+function prime(){
+  try{ if(!player){ player=new Audio(); player.setAttribute("playsinline",""); player.src=silence(); var pr=player.play(); if(pr&&pr.catch) pr.catch(function(){}); } }catch(e){}
+  if(!synth||!window.SpeechSynthesisUtterance) return;
+  try{ loadVoices(); if(!synth.speaking){ var u=new SpeechSynthesisUtterance(" "); u.volume=0; synth.speak(u); } }catch(e){}
+}
+function deviceSpeak(text){
   if(!synth||!window.SpeechSynthesisUtterance) return "This browser cannot speak text aloud.";
-  loadVoices(); var gu=pick("gu"), hi=pick("hi"), lang="gu-IN", msg;
-  if(gu) msg="Spoken with this device's Gujarati voice.";
-  else if(hi){ text=toDeva(text); lang="hi-IN"; msg="No Gujarati voice on this device, so a Hindi voice is reading it. Pronunciation is approximate."; }
-  else msg="No Gujarati voice was found on this device, so you may hear nothing.";
-  try{ synth.cancel(); var u=new SpeechSynthesisUtterance(text); u.lang=lang; if(gu||hi) u.voice=gu||hi; u.rate=0.9; synth.speak(u); }
+  loadVoices(); var gu=pick("gu"), hi=pick("hi"), lang, msg;
+  if(gu){ lang=gu.lang||"gu-IN"; msg="Spoken with this device's Gujarati voice."; }
+  else { text=toDeva(text); lang="hi-IN";
+    msg=hi?"This device has no Gujarati voice, so its Hindi voice is reading it. Pronunciation is approximate."
+          :"This device has no Gujarati or Hindi voice, so you may hear nothing. Set up the cloud voice, or install a Hindi voice in the device settings."; }
+  try{ if(synth.speaking||synth.pending) synth.cancel(); if(synth.paused) synth.resume();
+    var u=new SpeechSynthesisUtterance(text); u.lang=lang; if(gu||hi) u.voice=gu||hi; u.rate=0.9; u.volume=1;
+    setTimeout(function(){ try{ synth.speak(u); }catch(e){} },60); }
   catch(e){ msg="The voice did not play on this device."; }
   return msg;
 }
+/* Speaks a sentence and resolves with a short note about which voice was used. */
+async function say(text){
+  if(cloud.on&&cloudVoice!==false){
+    try{
+      if(!clips[text]){ var r=await fetch("/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text})});
+        if(r.status===501){ cloudVoice=false; throw new Error("off"); }
+        if(!r.ok) throw await cloudError(r);
+        clips[text]=URL.createObjectURL(await r.blob()); cloudVoice=true; }
+      if(!player) player=new Audio();
+      player.src=clips[text]; await player.play();
+      return "Spoken with the cloud Gujarati voice.";
+    }catch(e){ var why=String(e.message||e); if(why!=="off") return deviceSpeak(text)+" (Cloud voice problem: "+why+")"; }
+  }
+  return deviceSpeak(text);
+}
+function speak(text){ return deviceSpeak(text); }
 
 /* ---------- tracker ---------- */
 var fm=null, lastRes=null;
@@ -309,6 +339,6 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
   cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
-  speak:speak,prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
+  speak:speak,say:say,voices:function(){loadVoices();return voices.map(function(v){return v.lang;});},prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
   _onSample:onSample,_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

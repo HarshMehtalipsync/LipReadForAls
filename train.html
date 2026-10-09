@@ -105,7 +105,7 @@ function render(){
     var acts=document.createElement("div"); acts.className="acts";
     var t=document.createElement("button"); t.type="button"; t.className="btn small"+(target===c?" armed":""); t.dataset.k=c.k; t.textContent=target===c?"Mouth it now…":"Teach";
     t.disabled=!Lip.isOn();
-    t.addEventListener("click",function(){ target=target===c?null:c; Lip.rearm(); render(); status(target?"Mouth it now. It saves when you stop.":"Cancelled."); });
+    t.addEventListener("click",function(){ Lip.prime(); target=target===c?null:c; Lip.rearm(); render(); status(target?"Mouth it now. It saves when you stop.":"Cancelled."); });
     var u=document.createElement("button"); u.type="button"; u.className="btn small quiet"; u.textContent="Remove last"; u.hidden=!n;
     u.addEventListener("click",function(){ Lip.popClip(c); render(); });
     var x=document.createElement("button"); x.type="button"; x.className="btn small quiet"; x.textContent="Delete";
@@ -124,7 +124,8 @@ var opts={video:$("cam"),view:$("view"),roll:$("roll"),auto:true,
       if(Lip.cloudOn()) Lip.uploadClip(c,ft).then(function(up){ if(!up) status("Saved the clip here, but its face points could not be uploaded.",true); });
       return; }
     var r=Lip.classify(ft.seq); if(!r) return;
-    status(r.far?"Saw mouthing that matched nothing taught.":"Saw mouthing. It would read: "+r.ranked[0].c.g+(r.close?" (close call)":""));
+    status(r.far?"Saw mouthing that matched nothing taught.":"Saw mouthing. It read: "+r.ranked[0].c.g+(r.close?" (close call)":""));
+    if(!r.far) Lip.say(r.ranked[0].c.g);
   }};
 $("start").addEventListener("click",async function(){
   var s=$("camStatus"); s.textContent="Starting the camera…"; s.classList.remove("bad");
