@@ -30,6 +30,7 @@ function features(seq){
   seq=raw.map(function(r,i){ var s=0,c=0; for(var q=Math.max(0,i-half);q<=Math.min(n-1,i+half);q++){s+=raw[q][F];c++;} s/=c;
     var o=new Float32Array(F); for(var j=0;j<F;j++) o[j]=r[j]/s; return o; });
   var sm=seq.map(function(_,i){var o=new Float32Array(F),x=seq[Math.max(0,i-1)],y=seq[i],z=seq[Math.min(n-1,i+1)];for(var j=0;j<F;j++)o[j]=(x[j]+2*y[j]+z[j])/4;return o;});
+  var still=sm.map(function(r){return Float32Array.from(r);});
   for(j=0;j<F;j++){ var col=sm.map(function(r){return r[j];}).sort(num), med=col[Math.floor(n/2)]; for(i=0;i<n;i++) sm[i][j]-=med; }
   var op=sm.map(function(r){return r[0];}); if(Math.max.apply(null,op)-Math.min.apply(null,op)<0.03) return {err:"still"};
   var e=[0]; for(i=1;i<n;i++){var s=0;for(j=0;j<F;j++)s+=Math.abs(sm[i][j]-sm[i-1][j]);e.push(s);}
@@ -44,7 +45,7 @@ function features(seq){
   var out=[];
   for(i=0;i<L;i++){ var r=new Float32Array(F*2), pv=cut[Math.max(0,i-1)], nx=cut[Math.min(L-1,i+1)];
     for(j=0;j<F;j++){ r[j]=cut[i][j]/rms; r[F+j]=(nx[j]-pv[j])/rms*1.5; } out.push(r); }
-  return {seq:out,secs:L/FPS};
+  return {seq:out,secs:L/FPS,still:still.slice(a0,b0)};
 }
 function dist(a,b){
   var n=a.length,m=b.length,w=Math.ceil(0.25*Math.max(n,m))+2,INF=1e18,prev=new Float64Array(m+1).fill(INF),cur=new Float64Array(m+1);
@@ -78,10 +79,102 @@ function classify(seq){
   return {ranked:sc, close:sc.length>1&&sc[1].d/sc[0].d<1.1, far:limit>0&&sc[0].d>limit};
 }
 
+/* ---------- free reading from mouth shapes (experimental) ----------
+   Instead of matching a whole taught sentence, each moment of a mouthing is classed as one of five
+   visible mouth shapes. Any Gujarati sentence can be turned into the shapes it should produce, so
+   candidate sentences (his own list, plus guesses from a language model) are ranked by how well they fit.
+   Many sounds look alike on the lips, so this narrows the options down; it cannot read exactly. */
+var SHAPES=[{k:"M",g:"મ",how:"Lips pressed together, as when saying મ"},{k:"A",g:"આ",how:"Mouth wide open, as when saying આ"},
+  {k:"I",g:"ઈ",how:"Lips spread wide, as when saying ઈ"},{k:"U",g:"ઊ",how:"Lips rounded and pushed forward, as when saying ઊ"},
+  {k:"N",g:"અ",how:"Relaxed and slightly open, as when saying અ"}];
+var SF=[0,1,2,3,5,6,8];
+function shapesReady(){ return !!S.shapes&&SHAPES.every(function(s){return S.shapes[s.k];}); }
+function shapeSpread(){ return SF.map(function(_,i){ var v=SHAPES.map(function(s){return S.shapes[s.k][i];}), m=v.reduce(function(a,b){return a+b;},0)/v.length;
+  return Math.sqrt(v.reduce(function(a,b){return a+(b-m)*(b-m);},0)/v.length)+0.004; }); }
+function shapeSeq(still){
+  var sp=shapeSpread(), lab=still.map(function(r){ var best="N",bd=1e9; SHAPES.forEach(function(s){ var c=S.shapes[s.k],d=0;
+      for(var i=0;i<SF.length;i++){ var e=(r[SF[i]]-c[i])/sp[i]; d+=e*e; } if(d<bd){bd=d;best=s.k;} }); return best; });
+  lab=lab.map(function(x,i){ var a=lab[i-1],b=lab[i+1]; return (a&&b&&a===b&&a!==x)?a:x; });      // drop one-frame flickers
+  var runs=[]; lab.forEach(function(x){ var l=runs[runs.length-1]; if(l&&l.k===x) l.n++; else runs.push({k:x,n:1}); });
+  runs=runs.filter(function(r,i){ return r.n>=2||i===0||i===runs.length-1; });                      // a shape must last 2 frames
+  var seq=[]; runs.forEach(function(r){ if(seq[seq.length-1]!==r.k) seq.push(r.k); });
+  return seq;
+}
+var BILABIAL="પફબભમ";
+function vowelShapes(code){
+  switch(code){
+    case 0x0A85: return ["N"];
+    case 0x0A86: case 0x0ABE: return ["A"];
+    case 0x0A87: case 0x0A88: case 0x0ABF: case 0x0AC0: case 0x0A8D: case 0x0A8F: case 0x0AC5: case 0x0AC7: return ["I"];
+    case 0x0A89: case 0x0A8A: case 0x0A8B: case 0x0AC1: case 0x0AC2: case 0x0AC3: case 0x0A91: case 0x0A93: case 0x0AC9: case 0x0ACB: return ["U"];
+    case 0x0A90: case 0x0AC8: return ["A","I"];
+    case 0x0A94: case 0x0ACC: return ["A","U"];
+  }
+  return null;
+}
+/* The mouth shapes a Gujarati sentence should produce, in order. */
+function textShapes(text){
+  var out=[]; function push(k){ if(out[out.length-1]!==k) out.push(k); }
+  String(text).replace(/[^઀-૿\s]/g," ").split(/\s+/).filter(Boolean).forEach(function(w){
+    var ch=Array.from(w), i=0;
+    while(i<ch.length){ var c=ch[i], code=c.charCodeAt(0);
+      if(code>=0x0A95&&code<=0x0AB9){
+        if(BILABIAL.indexOf(c)>=0) push("M"); else if(c==="વ") push("U");
+        var j=i+1; if(ch[j]&&ch[j].charCodeAt(0)===0x0ABC) j++;                 // nukta
+        var nc=ch[j]?ch[j].charCodeAt(0):0;
+        if(nc===0x0ACD){ i=j+1; continue; }                                      // joined consonant: no vowel
+        var vs=vowelShapes(nc);
+        if(vs&&nc>=0x0ABE){ vs.forEach(push); i=j+1; continue; }
+        var rest=ch.slice(j).filter(function(x){var cc=x.charCodeAt(0);return cc!==0x0A82&&cc!==0x0A83&&cc!==0x0A81;});
+        if(rest.length||ch.length===1) push("N");                                // the built-in "a", silent at the end of a word
+        i=j; continue;
+      }
+      var v=vowelShapes(code); if(v&&code<=0x0A94) v.forEach(push);
+      i++;
+    }
+  });
+  return out;
+}
+function shapeCost(a,b){ if(a===b) return 0; var p=a<b?a+b:b+a;
+  return p==="AN"?0.5:p==="IN"?0.6:p==="NU"?0.6:p==="AI"?0.9:p==="AU"?0.9:(a==="M"||b==="M")?1.2:1; }
+function gapCost(k,edge){ return k==="M"?(edge?0.15:1):k==="N"?0.35:0.7; }
+function shapeFit(obs,exp){
+  var n=obs.length,m=exp.length,d=[],i,j; for(i=0;i<=n;i++){d.push(new Float64Array(m+1));}
+  for(i=1;i<=n;i++) d[i][0]=d[i-1][0]+gapCost(obs[i-1],true);
+  for(j=1;j<=m;j++) d[0][j]=d[0][j-1]+gapCost(exp[j-1],true);
+  for(i=1;i<=n;i++) for(j=1;j<=m;j++) d[i][j]=Math.min(d[i-1][j-1]+shapeCost(obs[i-1],exp[j-1]), d[i-1][j]+gapCost(obs[i-1],j===m), d[i][j-1]+gapCost(exp[j-1],i===n));
+  return d[n][m]/Math.max(n,m,1);
+}
+function teachShape(k){
+  return new Promise(function(res,rej){
+    if(!cam.on){ rej(new Error("Start the camera first.")); return; }
+    setTimeout(function(){ var t1=performance.now(), rows=buf.filter(function(s){return s.m&&s.t>=t1-1400;});
+      if(rows.length<8){ rej(new Error("The face was not followed well enough. Try again.")); return; }
+      var v=SF.map(function(f){ var a=rows.map(function(s){return s.m[f]/s.m[F];}).sort(num); return Math.round(a[Math.floor(a.length/2)]*10000)/10000; });
+      if(!S.shapes) S.shapes={}; S.shapes[k]=v; save(); res(v); },2000);
+  });
+}
+/* Ranks candidate sentences against what was mouthed. Candidates are his own sentences plus,
+   when a language model is connected, its guesses for this shape sequence. */
+async function freeRead(ft,ctx){
+  var obs=shapeSeq(ft.still), cands={}, note="";
+  S.cues.forEach(function(c){ cands[c.g]={g:c.g,m:c.m,src:"list"}; });
+  if(cloud.on){
+    try{ var r=await fetch("/api/guess",{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({shapes:obs.join(" "),secs:ft.secs,recent:(ctx&&ctx.recent)||[],hour:new Date().getHours(),known:S.cues.map(function(c){return c.g;})})});
+      if(r.status===501) note="No language model is connected, so it can only choose among the sentences on the Training page.";
+      else if(!r.ok) throw await cloudError(r);
+      else { var j=await r.json(); (j.candidates||[]).forEach(function(g){ g=String(g||"").trim(); if(g&&!cands[g]&&/[઀-૿]/.test(g)) cands[g]={g:g,m:"",src:"model"}; }); }
+    }catch(e){ note="Language model problem: "+String(e.message||e); }
+  } else note="Not signed in, so it can only choose among the sentences on the Training page.";
+  var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.fit=shapeFit(obs,textShapes(g)); return c; }).sort(function(a,b){return a.fit-b.fit;});
+  return {shapes:obs,ranked:ranked,note:note};
+}
+
 /* ---------- storage ---------- */
 function pack(){
   var b={}; S.cues.forEach(function(c){ b[c.k]=clips(c).map(function(s){return s.map(function(r){return Array.prototype.map.call(r,function(x){return Math.round(x*1000)/1000;});});}); });
-  return {version:4,updated:S.updated,cues:S.cues,bank:b};
+  return {version:4,updated:S.updated,cues:S.cues,bank:b,shapes:S.shapes||null};
 }
 function unpack(o){
   if(!o||!Array.isArray(o.cues)) return false;
@@ -92,7 +185,9 @@ function unpack(o){
       if(Array.isArray(s)&&s.length>5&&s.every(function(r){return Array.isArray(r)&&r.length===F*2&&r.every(function(x){return typeof x==="number"&&isFinite(x);});}))
         bank[c.k].push(s.map(function(r){return Float32Array.from(r);})); }); });
   if(!cues.length) return false;
-  S.cues=cues; S.bank=bank; S.updated=Number(o.updated)||0; return true;
+  var sh=null; if(o.shapes&&typeof o.shapes==="object"){ sh={}; SHAPES.forEach(function(s){ var v=o.shapes[s.k];
+    if(Array.isArray(v)&&v.length===SF.length&&v.every(function(x){return typeof x==="number"&&isFinite(x);})) sh[s.k]=v; }); }
+  S.cues=cues; S.bank=bank; S.shapes=sh; S.updated=Number(o.updated)||0; return true;
 }
 function save(keep){
   if(!keep) S.updated=Date.now();
@@ -101,7 +196,7 @@ function save(keep){
 }
 function load(){
   var ok=false; try{ ok=unpack(JSON.parse(localStorage.getItem(STORE)||"null")); }catch(e){}
-  if(!ok){ S.cues=DEFAULTS.map(function(c){return {k:c.k,g:c.g,m:c.m};}); S.bank={}; S.updated=0; S.cues.forEach(function(c){S.bank[c.k]=[];}); }
+  if(!ok){ S.cues=DEFAULTS.map(function(c){return {k:c.k,g:c.g,m:c.m};}); S.bank={}; S.shapes=null; S.updated=0; S.cues.forEach(function(c){S.bank[c.k]=[];}); }
   review(); return ok;
 }
 function addClip(c,seq){ var b=S.bank[c.k]||(S.bank[c.k]=[]); b.push(seq); if(b.length>MAXCLIPS) b.shift(); var ok=save(); review(); return ok; }
@@ -344,6 +439,7 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
   cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
+  shapeList:SHAPES,shapesReady:shapesReady,hasShape:function(k){return !!(S.shapes&&S.shapes[k]);},teachShape:teachShape,freeRead:freeRead,textShapes:textShapes,shapeFit:shapeFit,
   speak:speak,say:say,retryVoice:retryVoice,voices:function(){loadVoices();return voices.map(function(v){return v.lang;});},prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
-  _onSample:onSample,_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
+  _onSample:onSample,_fakeOn:function(v){cam.on=v;},_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

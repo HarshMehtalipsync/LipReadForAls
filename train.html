@@ -33,6 +33,13 @@
   </section>
 
   <section class="step">
+    <h2>Mouth shapes, for free reading</h2>
+    <p class="note">Experimental. Teach these five shapes once and the Use page can try to read sentences that were never taught. Press a button, then hold that mouth shape still for two seconds.</p>
+    <div class="cues" id="shapes"></div>
+    <div class="status" id="shapeStatus" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="step">
     <h2>Add a sentence</h2>
     <form id="addForm" class="row" novalidate>
       <div class="field"><label for="newG">Gujarati, as he says it</label><input class="g" id="newG" lang="gu" autocomplete="off"></div>
@@ -95,7 +102,22 @@ function selfCheck(){
   if(r.hit/r.tot<0.75) msg+=" That is too low to rely on. Keep the camera still and mouth each sentence the same way every time.";
   el.textContent=msg;
 }
+function renderShapes(){
+  var box=$("shapes"); box.textContent="";
+  Lip.shapeList.forEach(function(s){
+    var d=document.createElement("div"); d.className="cue";
+    var g=document.createElement("div"); g.className="g"; g.lang="gu"; g.textContent=s.g;
+    var r=document.createElement("div"); r.className="r"; r.textContent=s.how;
+    var k=document.createElement("div"); k.className="n"; k.textContent=Lip.hasShape(s.k)?"Taught":"Not taught yet";
+    var b=document.createElement("button"); b.type="button"; b.className="btn small"; b.textContent=Lip.hasShape(s.k)?"Teach again":"Hold and teach"; b.disabled=!Lip.isOn();
+    b.addEventListener("click",function(){ var st=$("shapeStatus"); st.classList.remove("bad"); st.textContent="Hold “"+s.g+"” still…"; b.disabled=true; b.classList.add("armed");
+      Lip.teachShape(s.k).then(function(){ st.textContent="Saved “"+s.g+"”."; renderShapes(); })
+        .catch(function(e){ st.textContent=String(e.message||e); st.classList.add("bad"); renderShapes(); }); });
+    var acts=document.createElement("div"); acts.className="acts"; acts.append(b); d.append(g,r,k,acts); box.append(d);
+  });
+}
 function render(){
+  renderShapes();
   var box=$("cues"); box.textContent="";
   Lip.state.cues.forEach(function(c){
     var n=Lip.clips(c).length, d=document.createElement("div"); d.className="cue";
