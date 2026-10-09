@@ -10,7 +10,7 @@ app.http("status", {
     const user = store.principal(request);
     if (!user) return { status: 401, jsonBody: { error: "Sign in first." } };
     try {
-      if (!(await store.roleOf(user))) return { status: 403, jsonBody: { error: "This account is not on the access list." } };
+      if (!(await store.roleOf(user))) return await store.refusal(user);
       const text = await store.getJson("shared/training.json");
       let training = null;
       if (text !== null) {

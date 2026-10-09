@@ -13,7 +13,7 @@ app.http("clips", {
     const user = store.principal(request);
     if (!user) return { status: 401, jsonBody: { error: "Sign in first." } };
     try {
-      if (!(await store.roleOf(user))) return { status: 403, jsonBody: { error: "This account is not on the access list." } };
+      if (!(await store.roleOf(user))) return await store.refusal(user);
       const text = await request.text();
       if (text.length > MAX) return { status: 413, jsonBody: { error: "Clip is too large." } };
       let clip;

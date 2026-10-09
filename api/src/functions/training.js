@@ -14,7 +14,7 @@ app.http("training", {
     if (!user) return { status: 401, jsonBody: { error: "Sign in first." } };
     const path = "shared/training.json";
     try {
-      if (!(await store.roleOf(user))) return { status: 403, jsonBody: { error: "This account is not on the access list." } };
+      if (!(await store.roleOf(user))) return await store.refusal(user);
       if (request.method === "GET") {
         const text = await store.getJson(path);
         if (text === null) return { status: 404, jsonBody: { error: "Nothing saved yet." } };

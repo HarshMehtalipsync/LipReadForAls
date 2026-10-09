@@ -14,7 +14,7 @@ app.http("access", {
       const name = store.nameOf(user);
       const role = await store.roleOf(user);
       if (request.method === "GET") {
-        const body = { name, role };
+        const body = { name, role, provider: user.identityProvider || "" };
         if (role === "admin") Object.assign(body, await store.readAccess());
         return { status: 200, jsonBody: body, headers: { "cache-control": "no-store" } };
       }

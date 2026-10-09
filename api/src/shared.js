@@ -85,6 +85,24 @@ async function roleOf(user) {
   return "";
 }
 
+// The refusal message says what the server saw, so a mismatch can be diagnosed from the page.
+async function refusal(user) {
+  const name = nameOf(user);
+  let seen = "no access list was found";
+  try {
+    const a = await readAccess();
+    if (a) seen = `the list has ${a.admins.length} admin(s) and ${a.members.length} member(s)`;
+  } catch (e) {
+    seen = "the access list could not be read";
+  }
+  return {
+    status: 403,
+    jsonBody: {
+      error: `This account is not on the access list. The server sees this sign-in as "${name || "(no name)"}" via ${user.identityProvider || "unknown provider"}, and ${seen}.`
+    }
+  };
+}
+
 // Count the stored face-point clips, for the storage check on the Training page.
 async function clipSummary() {
   let count = 0, bytes = 0, newest = null;
@@ -97,4 +115,4 @@ async function clipSummary() {
   return { count, bytes, newest: newest ? new Date(newest).toISOString() : null };
 }
 
-module.exports = { principal, safe, putJson, getJson, nameOf, cleanList, readAccess, writeAccess, roleOf, clipSummary };
+module.exports = { principal, safe, putJson, getJson, nameOf, cleanList, readAccess, writeAccess, roleOf, clipSummary, refusal };
