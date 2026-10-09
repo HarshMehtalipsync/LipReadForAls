@@ -83,7 +83,7 @@ $("rec").addEventListener("click",async function(){
 });
 $("off").addEventListener("click",function(){ Lip.stop(); mode="off"; button(); $("liveWrap").hidden=true; $("off").hidden=true; status("Camera is off."); });
 function idle(){ if(mode!=="recording") show(Lip.taught()<2?"Nothing is taught yet. Open the Training page and teach at least 2 sentences.":"Press Record, mouth a sentence without sound, then press Stop.","",true); }
-Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout"; $("cloudNote").textContent=c.state==="error"?"Cloud problem: "+c.msg:(c.on?c.msg:""); });
+Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout"; $("cloudNote").textContent=c.state==="error"?"Cloud problem: "+c.msg:c.state==="noaccess"?"Signed in as "+c.user+", but this account is not on the access list.":(c.on?c.msg:""); });
 Lip.load(); idle();
 Lip.cloudStart().then(function(pulled){ if(pulled) idle(); });
 window.__app={opts:opts};

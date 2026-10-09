@@ -13,6 +13,7 @@ app.http("clips", {
     const user = store.principal(request);
     if (!user) return { status: 401, jsonBody: { error: "Sign in first." } };
     try {
+      if (!(await store.roleOf(user))) return { status: 403, jsonBody: { error: "This account is not on the access list." } };
       const text = await request.text();
       if (text.length > MAX) return { status: 413, jsonBody: { error: "Clip is too large." } };
       let clip;
@@ -21,7 +22,7 @@ app.http("clips", {
         return { status: 400, jsonBody: { error: "Not a clip." } };
       }
       const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const path = `users/${store.safe(user.userId)}/clips/${store.safe(clip.cue.k) || "cue"}/${stamp}.json`;
+      const path = `shared/clips/${store.safe(clip.cue.k) || "cue"}/${stamp}.json`;
       await store.putJson(path, text);
       return { status: 201, jsonBody: { ok: true } };
     } catch (e) {

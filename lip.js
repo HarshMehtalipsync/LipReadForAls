@@ -111,8 +111,8 @@ function removeCue(c){ S.cues=S.cues.filter(function(x){return x!==c;}); delete 
 
 /* ---------- cloud copy: only when hosted on Azure Static Web Apps and signed in ----------
    Training is saved under the signed-in user's own folder. The newest copy wins, by save time. */
-var cloud={on:false,user:"",state:"checking",msg:"",timer:0,listener:null};
-function cloudSay(state,msg){ cloud.state=state; cloud.msg=msg||""; if(cloud.listener) cloud.listener({state:state,msg:cloud.msg,user:cloud.user,on:cloud.on}); }
+var cloud={on:false,user:"",role:"",people:null,state:"checking",msg:"",timer:0,listener:null};
+function cloudSay(state,msg){ cloud.state=state; cloud.msg=msg||""; if(cloud.listener) cloud.listener({state:state,msg:cloud.msg,user:cloud.user,on:cloud.on,role:cloud.role,people:cloud.people}); }
 async function cloudError(r){ var j={}; try{ j=await r.json(); }catch(e){} return new Error(j.error||("The server answered with error "+r.status+".")); }
 async function cloudPush(){
   if(!cloud.on) return; cloudSay("saving","Saving to the cloud…");
@@ -137,9 +137,19 @@ async function cloudStart(){
     if(!r.ok||(r.headers.get("content-type")||"").indexOf("json")<0){ cloudSay("unavailable"); return false; }
     var j=await r.json();
     if(!j.clientPrincipal){ cloudSay("signedout"); return false; }
-    cloud.user=j.clientPrincipal.userDetails||"your account"; cloud.on=true;
+    cloud.user=j.clientPrincipal.userDetails||"your account";
   }catch(e){ cloudSay("unavailable"); return false; }
+  try{ var a=await fetch("/api/access",{cache:"no-store"}); if(!a.ok) throw await cloudError(a);
+    var who=await a.json(); cloud.role=who.role||""; cloud.people=who.role==="admin"?{admins:who.admins||[],members:who.members||[]}:null;
+    if(!cloud.role){ cloudSay("noaccess"); return false; }
+    cloud.on=true;
+  }catch(e){ cloudSay("error",String(e.message||e)); return false; }
   return cloudPull();
+}
+async function setPeople(admins,members){
+  var r=await fetch("/api/access",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({admins:admins,members:members})});
+  if(!r.ok) throw await cloudError(r);
+  var who=await r.json(); cloud.people={admins:who.admins||[],members:who.members||[]}; cloudSay(cloud.state,cloud.msg); return cloud.people;
 }
 async function uploadClip(c,ft){
   if(!cloud.on||!ft.raw||!ft.raw.frames.length) return false;
@@ -297,7 +307,7 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
-  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,
+  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,
   speak:speak,prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
   _onSample:onSample,_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

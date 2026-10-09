@@ -3,7 +3,8 @@ const store = require("../shared");
 
 const MAX = 4 * 1024 * 1024;
 
-// The whole training set for the signed-in user: the sentences and the lip measurements of each taught clip.
+// The shared training set: the sentences and the lip measurements of each taught clip.
+// Anyone on the access list (admin or member) can read and save it.
 app.http("training", {
   methods: ["GET", "PUT"],
   authLevel: "anonymous",
@@ -11,8 +12,9 @@ app.http("training", {
   handler: async (request, context) => {
     const user = store.principal(request);
     if (!user) return { status: 401, jsonBody: { error: "Sign in first." } };
-    const path = `users/${store.safe(user.userId)}/training.json`;
+    const path = "shared/training.json";
     try {
+      if (!(await store.roleOf(user))) return { status: 403, jsonBody: { error: "This account is not on the access list." } };
       if (request.method === "GET") {
         const text = await store.getJson(path);
         if (text === null) return { status: 404, jsonBody: { error: "Nothing saved yet." } };

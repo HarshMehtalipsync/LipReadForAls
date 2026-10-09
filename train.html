@@ -50,7 +50,20 @@
       <a class="btn small ghost" id="inGh" href="/.auth/login/github?post_login_redirect_uri=/train.html" hidden>Sign in with GitHub</a>
       <a class="btn small quiet" id="out" href="/.auth/logout?post_logout_redirect_uri=/train.html" hidden>Sign out</a>
     </div>
-    <p class="note">When signed in, training is saved to your own private storage and loads on any device where you sign in with the same account. Lip measurements and face-point positions are uploaded. Video is not.</p>
+    <p class="note">When signed in, training is saved to your private storage and loads on any device where someone on the access list signs in. Lip measurements and face-point positions are uploaded. Video is not.</p>
+  </section>
+
+  <section class="step" id="accessStep" hidden>
+    <h2>Who has access</h2>
+    <p class="note">You are an admin. People you add can sign in, use the saved training, and teach. Add the email of their Microsoft account, or their GitHub username.</p>
+    <ul class="hist" id="people"></ul>
+    <form id="personForm" class="row" novalidate>
+      <div class="field"><label for="personName">Email or GitHub username</label><input id="personName" autocomplete="off" autocapitalize="none" spellcheck="false"></div>
+      <div class="field" style="flex:0 1 150px"><label for="personRole">Role</label>
+        <select id="personRole" style="min-height:44px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:16px var(--sans);padding:0 8px"><option value="member">Member</option><option value="admin">Admin</option></select></div>
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <div class="status" id="personStatus" role="status"></div>
   </section>
 
   <section class="step">
@@ -144,7 +157,33 @@ Lip.onCloud(function(c){
   s.classList.toggle("bad",c.state==="error");
   if(c.state==="unavailable") s.textContent="Cloud storage is not set up at this address. Training stays in this browser.";
   else if(c.state==="signedout") s.textContent="Not signed in. Training stays in this browser.";
-  else s.textContent="Signed in as "+c.user+". "+(c.state==="error"?"Cloud problem: ":"")+c.msg;
+  else if(c.state==="noaccess"){ s.textContent="Signed in as "+c.user+", but this account is not on the access list. Ask an admin to add it."; s.classList.add("bad"); $("out").hidden=false; }
+  else if(c.state==="error"&&!c.on){ s.textContent="Signed in as "+c.user+". Cloud problem: "+c.msg; $("out").hidden=false; }
+  else s.textContent="Signed in as "+c.user+(c.role?" ("+c.role+")":"")+". "+(c.state==="error"?"Cloud problem: ":"")+c.msg;
+  people(c);
+});
+var roster=null;
+function people(c){
+  $("accessStep").hidden=!c.people; if(!c.people) return; roster=c.people;
+  var ul=$("people"); ul.textContent="";
+  [["admins","Admin"],["members","Member"]].forEach(function(g){ roster[g[0]].forEach(function(n){
+    var li=document.createElement("li"), a=document.createElement("span"), r=document.createElement("span");
+    a.style.fontFamily="var(--sans)"; a.style.overflowWrap="anywhere"; a.textContent=n+" · "+g[1];
+    li.append(a);
+    if(n!==String(c.user).toLowerCase()){ var b=document.createElement("button"); b.type="button"; b.className="btn small quiet"; b.textContent="Remove";
+      b.addEventListener("click",function(){ change(roster.admins.filter(function(x){return x!==n;}),roster.members.filter(function(x){return x!==n;}),"Removed "+n+"."); }); li.append(b); }
+    else { r.className="note"; r.textContent="you"; li.append(r); }
+    ul.append(li); }); });
+}
+function change(admins,members,done){
+  var st=$("personStatus"); st.classList.remove("bad"); st.textContent="Saving…";
+  Lip.setPeople(admins,members).then(function(){ st.textContent=done; }).catch(function(e){ st.textContent=String(e.message||e); st.classList.add("bad"); });
+}
+$("personForm").addEventListener("submit",function(ev){
+  ev.preventDefault(); var n=$("personName").value.trim().toLowerCase(), st=$("personStatus");
+  if(!n||!roster){ st.textContent="Type an email or username first."; st.classList.add("bad"); return; }
+  var admins=roster.admins.filter(function(x){return x!==n;}), members=roster.members.filter(function(x){return x!==n;});
+  ($("personRole").value==="admin"?admins:members).push(n); $("personName").value=""; change(admins,members,"Added "+n+".");
 });
 Lip.load(); render();
 Lip.cloudStart().then(function(pulled){ if(pulled) render(); });
