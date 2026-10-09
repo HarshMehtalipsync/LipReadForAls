@@ -8,7 +8,7 @@ var ER=33, EL=263, FPS=20, MAXCLIPS=10, STORE="lipcue.v4";
 var PAIRS=[[13,14],[0,17],[78,308],[61,291],[0,2],[152,2],[81,178],[311,402],[82,87],[312,317],[61,2],[291,2]], F=PAIRS.length;
 var DEFAULTS=[{k:"water",g:"મને પાણી જોઈએ છે",m:"I want water"},{k:"pain",g:"મને દુખે છે",m:"I am in pain"},
   {k:"light",g:"લાઈટ બંધ કરો",m:"Turn off the light"},{k:"howareyou",g:"તમે કેમ છો?",m:"How are you?"}];
-var S={cues:[],bank:{}}, limit=0;
+var S={cues:[],bank:{},updated:0}, limit=0;
 function num(a,b){return a-b;}
 function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
 function d2(p,a,b){return Math.hypot(p[2*a]-p[2*b],p[2*a+1]-p[2*b+1]);}
@@ -81,7 +81,7 @@ function classify(seq){
 /* ---------- storage ---------- */
 function pack(){
   var b={}; S.cues.forEach(function(c){ b[c.k]=clips(c).map(function(s){return s.map(function(r){return Array.prototype.map.call(r,function(x){return Math.round(x*1000)/1000;});});}); });
-  return {version:4,cues:S.cues,bank:b};
+  return {version:4,updated:S.updated,cues:S.cues,bank:b};
 }
 function unpack(o){
   if(!o||!Array.isArray(o.cues)) return false;
@@ -92,18 +92,61 @@ function unpack(o){
       if(Array.isArray(s)&&s.length>5&&s.every(function(r){return Array.isArray(r)&&r.length===F*2&&r.every(function(x){return typeof x==="number"&&isFinite(x);});}))
         bank[c.k].push(s.map(function(r){return Float32Array.from(r);})); }); });
   if(!cues.length) return false;
-  S.cues=cues; S.bank=bank; return true;
+  S.cues=cues; S.bank=bank; S.updated=Number(o.updated)||0; return true;
 }
-function save(){ try{ localStorage.setItem(STORE,JSON.stringify(pack())); return true; }catch(e){ return false; } }
+function save(keep){
+  if(!keep) S.updated=Date.now();
+  var ok=true; try{ localStorage.setItem(STORE,JSON.stringify(pack())); }catch(e){ ok=false; }
+  if(!keep) cloudQueue(); return ok;
+}
 function load(){
   var ok=false; try{ ok=unpack(JSON.parse(localStorage.getItem(STORE)||"null")); }catch(e){}
-  if(!ok){ S.cues=DEFAULTS.map(function(c){return {k:c.k,g:c.g,m:c.m};}); S.bank={}; S.cues.forEach(function(c){S.bank[c.k]=[];}); }
+  if(!ok){ S.cues=DEFAULTS.map(function(c){return {k:c.k,g:c.g,m:c.m};}); S.bank={}; S.updated=0; S.cues.forEach(function(c){S.bank[c.k]=[];}); }
   review(); return ok;
 }
 function addClip(c,seq){ var b=S.bank[c.k]||(S.bank[c.k]=[]); b.push(seq); if(b.length>MAXCLIPS) b.shift(); var ok=save(); review(); return ok; }
 function popClip(c){ clips(c).pop(); save(); review(); }
 function addCue(g,m){ var c={k:"c"+Date.now().toString(36),g:g.trim().slice(0,120),m:(m||"").trim().slice(0,120)}; S.cues.push(c); S.bank[c.k]=[]; save(); return c; }
 function removeCue(c){ S.cues=S.cues.filter(function(x){return x!==c;}); delete S.bank[c.k]; save(); review(); }
+
+/* ---------- cloud copy: only when hosted on Azure Static Web Apps and signed in ----------
+   Training is saved under the signed-in user's own folder. The newest copy wins, by save time. */
+var cloud={on:false,user:"",state:"checking",msg:"",timer:0,listener:null};
+function cloudSay(state,msg){ cloud.state=state; cloud.msg=msg||""; if(cloud.listener) cloud.listener({state:state,msg:cloud.msg,user:cloud.user,on:cloud.on}); }
+async function cloudError(r){ var j={}; try{ j=await r.json(); }catch(e){} return new Error(j.error||("The server answered with error "+r.status+".")); }
+async function cloudPush(){
+  if(!cloud.on) return; cloudSay("saving","Saving to the cloud…");
+  try{ var r=await fetch("/api/training",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(pack())});
+    if(!r.ok) throw await cloudError(r);
+    cloudSay("synced","Saved to the cloud at "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})+".");
+  }catch(e){ cloudSay("error",String(e.message||e)); }
+}
+function cloudQueue(){ if(!cloud.on) return; clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,1500); }
+async function cloudPull(){
+  try{ var r=await fetch("/api/training",{cache:"no-store"});
+    if(r.status===404){ if(S.updated) await cloudPush(); else cloudSay("synced","Nothing is saved in the cloud yet."); return false; }
+    if(!r.ok) throw await cloudError(r);
+    var o=await r.json(), theirs=Number(o.updated)||0;
+    if(theirs>S.updated){ if(unpack(o)){ save(true); review(); cloudSay("synced","Loaded training from the cloud."); return true; } throw new Error("The cloud copy could not be read."); }
+    if(S.updated>theirs){ await cloudPush(); return false; }
+    cloudSay("synced","Up to date with the cloud."); return false;
+  }catch(e){ cloudSay("error",String(e.message||e)); return false; }
+}
+async function cloudStart(){
+  try{ var r=await fetch("/.auth/me",{cache:"no-store"});
+    if(!r.ok||(r.headers.get("content-type")||"").indexOf("json")<0){ cloudSay("unavailable"); return false; }
+    var j=await r.json();
+    if(!j.clientPrincipal){ cloudSay("signedout"); return false; }
+    cloud.user=j.clientPrincipal.userDetails||"your account"; cloud.on=true;
+  }catch(e){ cloudSay("unavailable"); return false; }
+  return cloudPull();
+}
+async function uploadClip(c,ft){
+  if(!cloud.on||!ft.raw||!ft.raw.frames.length) return false;
+  try{ var r=await fetch("/api/clips",{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({version:1,cue:{k:c.k,g:c.g,m:c.m},taken:new Date().toISOString(),secs:ft.secs,width:ft.raw.w,height:ft.raw.h,turned:ft.raw.rot,frames:ft.raw.frames})});
+    return r.ok; }catch(e){ return false; }
+}
 
 /* ---------- speech ---------- */
 var synth=window.speechSynthesis||null, voices=[];
@@ -158,10 +201,12 @@ function fire(t0,t1,manual){
   var rs=resample(t0,t1); while(rs.length&&!rs[0]) rs.shift(); while(rs.length&&!rs[rs.length-1]) rs.pop();
   var ft=features(rs), o=cam.o||{};
   if(ft.err){ if(o.miss) o.miss(ft.err,manual); return; }
+  ft.raw={w:wc.width,h:wc.height,rot:rot.deg,frames:buf.filter(function(s){return s.p&&s.t>=t0&&s.t<=t1;}).map(function(s){
+    return {t:Math.round(s.t-t0),p:Array.prototype.map.call(s.p,function(x){return Math.round(x*10)/10;})}; })};
   det.cool=t1+1200; if(o.segment) o.segment(ft,manual);
 }
 function onSample(t,pts){
-  var m=pts?measure(pts):null; buf.push({t:t,m:m}); while(buf.length&&buf[0].t<t-12000) buf.shift();
+  var m=pts?measure(pts):null; buf.push({t:t,m:m,p:pts}); while(buf.length&&buf[0].t<t-12000) buf.shift();
   if(!m){ det.ema=null; return; }
   var mm=new Float32Array(F); for(var q=0;q<F;q++) mm[q]=m[q]/m[F];
   if(!det.ema){ det.ema=mm; det.lastT=t; return; }
@@ -252,6 +297,7 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
+  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,
   speak:speak,prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
   _onSample:onSample,_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

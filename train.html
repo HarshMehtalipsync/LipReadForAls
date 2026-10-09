@@ -43,6 +43,17 @@
   </section>
 
   <section class="step">
+    <h2>Cloud storage</h2>
+    <div class="status" id="cloudStatus" role="status" aria-live="polite">Checking…</div>
+    <div class="row">
+      <a class="btn small" id="inMs" href="/.auth/login/aad?post_login_redirect_uri=/train.html" hidden>Sign in with Microsoft</a>
+      <a class="btn small ghost" id="inGh" href="/.auth/login/github?post_login_redirect_uri=/train.html" hidden>Sign in with GitHub</a>
+      <a class="btn small quiet" id="out" href="/.auth/logout?post_logout_redirect_uri=/train.html" hidden>Sign out</a>
+    </div>
+    <p class="note">When signed in, training is saved to your own private storage and loads on any device where you sign in with the same account. Lip measurements and face-point positions are uploaded. Video is not.</p>
+  </section>
+
+  <section class="step">
     <h2>Backup</h2>
     <p class="note">Saved training lives in this browser on this device. Download a backup to keep it, or to move it to another device.</p>
     <div class="row">
@@ -94,7 +105,9 @@ var opts={video:$("cam"),view:$("view"),roll:$("roll"),auto:true,
   miss:function(err,manual){ if(target||manual) status(err==="face"?"The face was not followed well enough. Try again.":"No clear mouthing was seen. Try again.",true); },
   segment:function(ft){
     if(target){ var c=target; target=null; var ok=Lip.addClip(c,ft.seq); render();
-      status("Saved a clip, mouthing seen for "+ft.secs.toFixed(1)+" s."+(ok?"":" This browser would not store it, so it lasts only until the page closes."),!ok); return; }
+      status("Saved a clip, mouthing seen for "+ft.secs.toFixed(1)+" s."+(ok?"":" This browser would not store it, so it lasts only until the page closes."),!ok);
+      if(Lip.cloudOn()) Lip.uploadClip(c,ft).then(function(up){ if(!up) status("Saved the clip here, but its face points could not be uploaded.",true); });
+      return; }
     var r=Lip.classify(ft.seq); if(!r) return;
     status(r.far?"Saw mouthing that matched nothing taught.":"Saw mouthing. It would read: "+r.ranked[0].c.g+(r.close?" (close call)":""));
   }};
@@ -125,7 +138,16 @@ $("wipe").addEventListener("click",function(){
   var b=$("wipe"); if(b.dataset.sure!=="1"){ b.dataset.sure="1"; b.textContent="Tap again to delete everything"; setTimeout(function(){b.dataset.sure="";b.textContent="Delete all training";},4000); return; }
   b.dataset.sure=""; b.textContent="Delete all training"; try{ localStorage.removeItem("lipcue.v4"); }catch(e){} target=null; Lip.load(); render(); $("bakStatus").textContent="All training deleted.";
 });
+Lip.onCloud(function(c){
+  var s=$("cloudStatus"), signedIn=c.on;
+  $("inMs").hidden=$("inGh").hidden=c.state!=="signedout"; $("out").hidden=!signedIn;
+  s.classList.toggle("bad",c.state==="error");
+  if(c.state==="unavailable") s.textContent="Cloud storage is not set up at this address. Training stays in this browser.";
+  else if(c.state==="signedout") s.textContent="Not signed in. Training stays in this browser.";
+  else s.textContent="Signed in as "+c.user+". "+(c.state==="error"?"Cloud problem: ":"")+c.msg;
+});
 Lip.load(); render();
+Lip.cloudStart().then(function(pulled){ if(pulled) render(); });
 window.__train={opts:opts,setTarget:function(k){ target=Lip.state.cues.filter(function(c){return c.k===k;})[0]||null; }};
 })();
 </script>
