@@ -167,7 +167,7 @@ function pick(pref){ return voices.filter(function(v){return String(v.lang||"").
 function toDeva(s){ return s.replace(/[઀-૿]/g,function(ch){return String.fromCharCode(ch.charCodeAt(0)-0x180);}); }
 /* Sound on phones only plays after a tap. prime() is called from every tap that may lead to speech:
    it wakes the device voice and unlocks one audio player that the cloud voice later reuses. */
-var player=null, clips={}, cloudVoice=null;   // cloudVoice: null = not tried yet, true = works, false = not available
+var player=null, spoken={}, cloudVoice=null;   // cloudVoice: null = not tried yet, true = works, false = not available
 function silence(){ var n=800,b=new ArrayBuffer(44+n),v=new DataView(b); function w(o,s){for(var i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i));}
   w(0,"RIFF"); v.setUint32(4,36+n,true); w(8,"WAVEfmt "); v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,1,true);
   v.setUint32(24,8000,true); v.setUint32(28,8000,true); v.setUint16(32,1,true); v.setUint16(34,8,true); w(36,"data"); v.setUint32(40,n,true);
@@ -194,12 +194,12 @@ function deviceSpeak(text){
 async function say(text){
   if(cloud.on&&cloudVoice!==false){
     try{
-      if(!clips[text]){ var r=await fetch("/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text})});
+      if(!spoken[text]){ var r=await fetch("/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text})});
         if(r.status===501){ cloudVoice=false; throw new Error("off"); }
         if(!r.ok) throw await cloudError(r);
-        clips[text]=URL.createObjectURL(await r.blob()); cloudVoice=true; }
+        spoken[text]=URL.createObjectURL(await r.blob()); cloudVoice=true; }
       if(!player) player=new Audio();
-      player.src=clips[text]; await player.play();
+      player.src=spoken[text]; await player.play();
       return "Spoken with the cloud Gujarati voice.";
     }catch(e){ var why=String(e.message||e); if(why!=="off") return deviceSpeak(text)+" (Cloud voice problem: "+why+")"; }
   }
