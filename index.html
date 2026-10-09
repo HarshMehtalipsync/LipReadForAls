@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lip Cue</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <nav><span class="brand">Lip Cue</span><span class="tabs"><a href="index.html" aria-current="page">Use</a><a href="train.html">Training</a></span></nav>
+
+  <section class="step readout" aria-live="polite">
+    <div class="said idle" id="said" lang="gu">Press Record, mouth a sentence without sound, then press Stop.</div>
+    <div class="mean" id="mean"></div>
+  </section>
+
+  <button class="btn big" id="rec" type="button">Record</button>
+  <div class="status" id="status" role="status" aria-live="polite">Camera is off.</div>
+
+  <div class="live" id="liveWrap" hidden><canvas id="view"></canvas></div>
+  <video id="cam" class="hid" playsinline muted></video>
+
+  <section class="step" id="altWrap" hidden>
+    <h2>Not right? Tap the one that was meant</h2>
+    <div class="alts" id="alts"></div>
+    <p class="note" id="voice"></p>
+  </section>
+
+  <section class="step" id="histWrap" hidden>
+    <h2>Said so far</h2>
+    <ul class="hist" id="hist"></ul>
+  </section>
+
+  <div class="row"><button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button></div>
+</main>
+
+<script src="fm/face_mesh.js"></script>
+<script src="lip.js"></script>
+<script>
+(function(){
+"use strict";
+function $(id){return document.getElementById(id);}
+var mode="off", timer=0;                       // off -> ready -> recording -> ready
+function status(msg,bad){ var s=$("status"); s.textContent=msg; s.classList.toggle("bad",!!bad); }
+function show(text,mean,idle){ var s=$("said"); s.textContent=text; s.classList.toggle("idle",!!idle); $("mean").textContent=mean||""; }
+function button(){ var b=$("rec"); b.textContent=mode==="recording"?"Stop":"Record"; b.classList.toggle("armed",mode==="recording"); b.disabled=mode==="starting"; }
+function say(c,log){
+  show(c.g,c.m,false); $("voice").textContent=Lip.speak(c.g);
+  if(log){ var li=document.createElement("li"), a=document.createElement("span"), t=document.createElement("time");
+    a.lang="gu"; a.textContent=c.g; t.textContent=new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    li.append(a,t); $("hist").prepend(li); while($("hist").children.length>8) $("hist").lastChild.remove(); $("histWrap").hidden=false; }
+}
+function alts(list){
+  var box=$("alts"); box.textContent="";
+  list.forEach(function(s){ var b=document.createElement("button"); b.type="button"; b.className="btn ghost";
+    var g=document.createElement("span"); g.lang="gu"; g.textContent=s.c.g; var m=document.createElement("span"); m.className="m"; m.textContent=s.c.m;
+    b.append(g,m); b.addEventListener("click",function(){ say(s.c,true); }); box.append(b); });
+  $("altWrap").hidden=!list.length;
+}
+function begin(){ mode="recording"; button(); Lip.beginCapture(); status("Recording. Mouth the sentence, then press Stop.");
+  clearTimeout(timer); timer=setTimeout(function(){ if(mode==="recording") end(); },7000); }
+function end(){ clearTimeout(timer); mode="ready"; button(); status("Reading…"); Lip.endCapture(); }
+var opts={video:$("cam"),view:$("view"),auto:false,
+  status:function(msg,bad){ if(mode==="ready") status(msg,bad); },
+  miss:function(err){ show(err==="face"?"I could not see the face well enough. Try again.":"I did not see any mouthing. Try again.","",true); status("Ready."); },
+  segment:function(ft){
+    var r=Lip.classify(ft.seq);
+    if(!r){ show("Teach at least 2 sentences on the Training page first.","",true); status("Ready."); return; }
+    if(r.far){ show("No clear match.","",true); alts(r.ranked.slice(0,3)); $("voice").textContent=""; status("Ready."); return; }
+    say(r.ranked[0].c,true); alts(r.ranked.slice(1,4)); status(r.close?"Ready. That one was close to the next match.":"Ready.");
+  }};
+$("rec").addEventListener("click",async function(){
+  if(mode==="recording"){ end(); return; }
+  if(mode==="ready"){ begin(); return; }
+  mode="starting"; button(); status("Starting the camera…");
+  var err=await Lip.start(opts);
+  if(err){ mode="off"; button(); status(err,true); return; }
+  $("liveWrap").hidden=false; $("off").hidden=false; begin();
+});
+$("off").addEventListener("click",function(){ Lip.stop(); mode="off"; button(); $("liveWrap").hidden=true; $("off").hidden=true; status("Camera is off."); });
+Lip.load();
+if(Lip.taught()<2) show("Nothing is taught yet. Open the Training page and teach at least 2 sentences.","",true);
+window.__app={opts:opts};
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lip Cue Training</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anek+Gujarati:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <nav><span class="brand">Lip Cue</span><span class="tabs"><a href="index.html">Use</a><a href="train.html" aria-current="page">Training</a></span></nav>
+
+  <section class="step">
+    <h1>Training</h1>
+    <p>Teach each sentence 3 to 5 times, in the position and camera angle it will be used in. Video stays on this device. Only lip measurements are saved, in this browser.</p>
+    <div class="row">
+      <button class="btn" id="start" type="button">Start camera</button>
+      <button class="btn ghost" id="stop" type="button" hidden>Stop camera</button>
+    </div>
+    <div class="status" id="camStatus" role="status" aria-live="polite">Camera is off.</div>
+    <div class="live" id="liveWrap" hidden><canvas id="view"></canvas></div>
+    <video id="cam" class="hid" playsinline muted></video>
+    <canvas class="roll" id="roll" width="1200" height="160" hidden aria-label="Mouth opening over the last 3 seconds"></canvas>
+  </section>
+
+  <section class="step">
+    <h2>Sentences</h2>
+    <p class="note">Press Teach, then mouth the sentence once without sound: mouth closed, mouth it, mouth closed. It saves when the mouthing stops.</p>
+    <div class="cues" id="cues"></div>
+    <div class="status" id="status" role="status" aria-live="polite"></div>
+    <p class="note" id="selfCheck" role="status"></p>
+  </section>
+
+  <section class="step">
+    <h2>Add a sentence</h2>
+    <form id="addForm" class="row" novalidate>
+      <div class="field"><label for="newG">Gujarati, as he says it</label><input class="g" id="newG" lang="gu" autocomplete="off"></div>
+      <div class="field"><label for="newM">Meaning (optional)</label><input id="newM" autocomplete="off"></div>
+      <button class="btn" type="submit">Add</button>
+    </form>
+    <div class="status" id="addStatus" role="status"></div>
+  </section>
+
+  <section class="step">
+    <h2>Backup</h2>
+    <p class="note">Saved training lives in this browser on this device. Download a backup to keep it, or to move it to another device.</p>
+    <div class="row">
+      <button class="btn ghost small" id="dl" type="button">Download backup</button>
+      <label class="btn ghost small"><input type="file" id="up" accept="application/json,.json">Restore backup</label>
+      <button class="btn quiet small" id="wipe" type="button">Delete all training</button>
+    </div>
+    <div class="status" id="bakStatus" role="status"></div>
+  </section>
+</main>
+
+<script src="fm/face_mesh.js"></script>
+<script src="lip.js"></script>
+<script>
+(function(){
+"use strict";
+function $(id){return document.getElementById(id);}
+var target=null;
+function status(msg,bad){ var s=$("status"); s.textContent=msg; s.classList.toggle("bad",!!bad); }
+function selfCheck(){
+  var r=Lip.review(), el=$("selfCheck"); if(!r.tot){ el.textContent=""; return; }
+  var keys=Object.keys(r.miss), msg="Self-check: "+r.hit+" of "+r.tot+" taught clips match their own sentence when compared with the others.";
+  if(keys.length) msg+=" Mixed up: "+keys.map(function(k){return k+(r.miss[k]>1?" ("+r.miss[k]+" times)":"");}).join("; ")+".";
+  if(r.hit/r.tot<0.75) msg+=" That is too low to rely on. Keep the camera still and mouth each sentence the same way every time.";
+  el.textContent=msg;
+}
+function render(){
+  var box=$("cues"); box.textContent="";
+  Lip.state.cues.forEach(function(c){
+    var n=Lip.clips(c).length, d=document.createElement("div"); d.className="cue";
+    var g=document.createElement("div"); g.className="g"; g.lang="gu"; g.textContent=c.g;
+    var r=document.createElement("div"); r.className="r"; r.textContent=c.m;
+    var k=document.createElement("div"); k.className="n"; k.textContent=n+(n===1?" clip":" clips");
+    var acts=document.createElement("div"); acts.className="acts";
+    var t=document.createElement("button"); t.type="button"; t.className="btn small"+(target===c?" armed":""); t.dataset.k=c.k; t.textContent=target===c?"Mouth it now…":"Teach";
+    t.disabled=!Lip.isOn();
+    t.addEventListener("click",function(){ target=target===c?null:c; Lip.rearm(); render(); status(target?"Mouth it now. It saves when you stop.":"Cancelled."); });
+    var u=document.createElement("button"); u.type="button"; u.className="btn small quiet"; u.textContent="Remove last"; u.hidden=!n;
+    u.addEventListener("click",function(){ Lip.popClip(c); render(); });
+    var x=document.createElement("button"); x.type="button"; x.className="btn small quiet"; x.textContent="Delete";
+    x.addEventListener("click",function(){ if(x.dataset.sure!=="1"){ x.dataset.sure="1"; x.textContent="Tap again to delete"; setTimeout(function(){x.dataset.sure="";x.textContent="Delete";},4000); return; }
+      if(target===c) target=null; Lip.removeCue(c); render(); });
+    acts.append(t,u,x); d.append(g,r,k,acts); box.append(d);
+  });
+  selfCheck();
+}
+var opts={video:$("cam"),view:$("view"),roll:$("roll"),auto:true,
+  status:function(msg,bad){ var s=$("camStatus"), deg=Lip.rotation(); s.textContent=msg+(deg?" Picture turned "+deg+"° to find the face.":""); s.classList.toggle("bad",!!bad); },
+  miss:function(err,manual){ if(target||manual) status(err==="face"?"The face was not followed well enough. Try again.":"No clear mouthing was seen. Try again.",true); },
+  segment:function(ft){
+    if(target){ var c=target; target=null; var ok=Lip.addClip(c,ft.seq); render();
+      status("Saved a clip, mouthing seen for "+ft.secs.toFixed(1)+" s."+(ok?"":" This browser would not store it, so it lasts only until the page closes."),!ok); return; }
+    var r=Lip.classify(ft.seq); if(!r) return;
+    status(r.far?"Saw mouthing that matched nothing taught.":"Saw mouthing. It would read: "+r.ranked[0].c.g+(r.close?" (close call)":""));
+  }};
+$("start").addEventListener("click",async function(){
+  var s=$("camStatus"); s.textContent="Starting the camera…"; s.classList.remove("bad");
+  var err=await Lip.start(opts);
+  if(err){ s.textContent=err; s.classList.add("bad"); return; }
+  $("liveWrap").hidden=false; $("roll").hidden=false; $("stop").hidden=false; $("start").hidden=true; s.textContent="Camera is on. Green dots should sit on the lips."; render();
+});
+$("stop").addEventListener("click",function(){ Lip.stop(); target=null; $("liveWrap").hidden=true; $("roll").hidden=true; $("stop").hidden=true; $("start").hidden=false; $("camStatus").textContent="Camera is off."; render(); });
+$("addForm").addEventListener("submit",function(ev){
+  ev.preventDefault(); var g=$("newG").value.trim(), st=$("addStatus");
+  if(!g){ st.textContent="Type the sentence first."; st.classList.add("bad"); return; }
+  Lip.addCue(g,$("newM").value); $("newG").value=""; $("newM").value=""; st.classList.remove("bad"); st.textContent="Added. Now teach it."; render();
+});
+$("newG").addEventListener("input",function(){ $("addStatus").textContent=""; });
+$("dl").addEventListener("click",function(){
+  var a=document.createElement("a"), url=URL.createObjectURL(new Blob([JSON.stringify(Lip.pack())],{type:"application/json"}));
+  a.href=url; a.download="lip-cue-training-"+new Date().toISOString().slice(0,10)+".json"; document.body.append(a); a.click(); a.remove();
+  setTimeout(function(){URL.revokeObjectURL(url);},2000); $("bakStatus").textContent="Backup downloaded.";
+});
+$("up").addEventListener("change",async function(ev){
+  var f=ev.target.files[0]; ev.target.value=""; if(!f) return; var st=$("bakStatus"), ok=false;
+  try{ ok=Lip.unpack(JSON.parse(await f.text())); }catch(e){}
+  st.textContent=ok?"Backup restored.":"That file is not a Lip Cue backup."; st.classList.toggle("bad",!ok); target=null; render();
+});
+$("wipe").addEventListener("click",function(){
+  var b=$("wipe"); if(b.dataset.sure!=="1"){ b.dataset.sure="1"; b.textContent="Tap again to delete everything"; setTimeout(function(){b.dataset.sure="";b.textContent="Delete all training";},4000); return; }
+  b.dataset.sure=""; b.textContent="Delete all training"; try{ localStorage.removeItem("lipcue.v4"); }catch(e){} target=null; Lip.load(); render(); $("bakStatus").textContent="All training deleted.";
+});
+Lip.load(); render();
+window.__train={opts:opts,setTarget:function(k){ target=Lip.state.cues.filter(function(c){return c.k===k;})[0]||null; }};
+})();
+</script>
+</body>
+</html>
