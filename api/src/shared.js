@@ -85,4 +85,16 @@ async function roleOf(user) {
   return "";
 }
 
-module.exports = { principal, safe, putJson, getJson, nameOf, cleanList, readAccess, writeAccess, roleOf };
+// Count the stored face-point clips, for the storage check on the Training page.
+async function clipSummary() {
+  let count = 0, bytes = 0, newest = null;
+  for await (const b of container().listBlobsFlat({ prefix: "shared/clips/" })) {
+    count++;
+    bytes += (b.properties && b.properties.contentLength) || 0;
+    const when = b.properties && b.properties.lastModified;
+    if (when && (!newest || when > newest)) newest = when;
+  }
+  return { count, bytes, newest: newest ? new Date(newest).toISOString() : null };
+}
+
+module.exports = { principal, safe, putJson, getJson, nameOf, cleanList, readAccess, writeAccess, roleOf, clipSummary };

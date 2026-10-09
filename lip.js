@@ -151,6 +151,7 @@ async function setPeople(admins,members){
   if(!r.ok) throw await cloudError(r);
   var who=await r.json(); cloud.people={admins:who.admins||[],members:who.members||[]}; cloudSay(cloud.state,cloud.msg); return cloud.people;
 }
+async function cloudCheck(){ var r=await fetch("/api/status",{cache:"no-store"}); if(!r.ok) throw await cloudError(r); return r.json(); }
 async function uploadClip(c,ft){
   if(!cloud.on||!ft.raw||!ft.raw.frames.length) return false;
   try{ var r=await fetch("/api/clips",{method:"POST",headers:{"content-type":"application/json"},
@@ -307,7 +308,7 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
-  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,
+  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
   speak:speak,prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
   _onSample:onSample,_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

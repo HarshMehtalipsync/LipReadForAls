@@ -50,6 +50,8 @@
       <a class="btn small ghost" id="inGh" href="/.auth/login/github?post_login_redirect_uri=/train.html" hidden>Sign in with GitHub</a>
       <a class="btn small quiet" id="out" href="/.auth/logout?post_logout_redirect_uri=/train.html" hidden>Sign out</a>
     </div>
+    <div class="row"><button class="btn small ghost" id="check" type="button" hidden>Check what is stored</button></div>
+    <ul class="hist" id="stored" hidden></ul>
     <p class="note">When signed in, training is saved to your private storage and loads on any device where someone on the access list signs in. Lip measurements and face-point positions are uploaded. Video is not.</p>
   </section>
 
@@ -160,7 +162,19 @@ Lip.onCloud(function(c){
   else if(c.state==="noaccess"){ s.textContent="Signed in as "+c.user+", but this account is not on the access list. Ask an admin to add it."; s.classList.add("bad"); $("out").hidden=false; }
   else if(c.state==="error"&&!c.on){ s.textContent="Signed in as "+c.user+". Cloud problem: "+c.msg; $("out").hidden=false; }
   else s.textContent="Signed in as "+c.user+(c.role?" ("+c.role+")":"")+". "+(c.state==="error"?"Cloud problem: ":"")+c.msg;
+  $("check").hidden=!c.on; if(!c.on) $("stored").hidden=true;
   people(c);
+});
+$("check").addEventListener("click",async function(){
+  var ul=$("stored"); ul.hidden=false; ul.textContent="";
+  function row(a,b){ var li=document.createElement("li"), x=document.createElement("span"), y=document.createElement("time"); x.textContent=a; x.style.overflowWrap="anywhere"; y.textContent=b; li.append(x,y); ul.append(li); }
+  row("Reading from storage…","");
+  try{ var s=await Lip.cloudCheck(); ul.textContent="";
+    if(!s.training) row("No training set is stored yet.","");
+    else { row("Training set, saved "+new Date(s.training.updated).toLocaleString([], {dateStyle:"medium",timeStyle:"short"}),Math.max(1,Math.round(s.training.bytes/1024))+" KB");
+      s.training.sentences.forEach(function(c){ row(c.g,c.clips+(c.clips===1?" clip":" clips")); }); }
+    row("Face-point recordings"+(s.facePoints.newest?", newest "+new Date(s.facePoints.newest).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):""),s.facePoints.count+" files, "+Math.round(s.facePoints.bytes/1024)+" KB");
+  }catch(e){ ul.textContent=""; row("Could not read storage: "+String(e.message||e),""); }
 });
 var roster=null;
 function people(c){
