@@ -157,16 +157,17 @@ function teachShape(k){
 /* Ranks candidate sentences against what was mouthed. Candidates are his own sentences plus,
    when a language model is connected, its guesses for this shape sequence. */
 async function freeRead(ft,ctx){
+  if(cloud.state==="checking") await settled();
   var obs=shapeSeq(ft.still), cands={}, note="";
   S.cues.forEach(function(c){ cands[c.g]={g:c.g,m:c.m,src:"list"}; });
   if(cloud.on){
-    try{ var r=await fetch("/api/guess",{method:"POST",headers:{"content-type":"application/json"},
+    try{ var r=await ask("/api/guess",{method:"POST",headers:{"content-type":"application/json"},
         body:JSON.stringify({shapes:obs.join(" "),secs:ft.secs,recent:(ctx&&ctx.recent)||[],hour:new Date().getHours(),known:S.cues.map(function(c){return c.g;})})});
       if(r.status===501) note="No language model is connected, so it can only choose among the sentences on the Training page.";
       else if(!r.ok) throw await cloudError(r);
       else { var j=await r.json(); (j.candidates||[]).forEach(function(g){ g=String(g||"").trim(); if(g&&!cands[g]&&/[઀-૿]/.test(g)) cands[g]={g:g,m:"",src:"model"}; }); }
     }catch(e){ note="Language model problem: "+String(e.message||e); }
-  } else note="Not signed in, so it can only choose among the sentences on the Training page.";
+  } else note=(cloud.state==="signedout"?"Not signed in":"The cloud is not connected ("+(cloud.msg||cloud.state)+")")+", so it can only choose among the sentences on the Training page.";
   var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.fit=shapeFit(obs,textShapes(g)); return c; }).sort(function(a,b){return a.fit-b.fit;});
   return {shapes:obs,ranked:ranked,note:note};
 }
@@ -208,17 +209,22 @@ function removeCue(c){ S.cues=S.cues.filter(function(x){return x!==c;}); delete 
    Training is saved under the signed-in user's own folder. The newest copy wins, by save time. */
 var cloud={on:false,user:"",role:"",people:null,state:"checking",msg:"",timer:0,listener:null};
 function cloudSay(state,msg){ cloud.state=state; cloud.msg=msg||""; if(cloud.listener) cloud.listener({state:state,msg:cloud.msg,user:cloud.user,on:cloud.on,role:cloud.role,people:cloud.people}); }
+function ask(url,opt,ms){
+  var c=new AbortController(), timer=setTimeout(function(){c.abort();},ms||20000); opt=opt||{}; opt.signal=c.signal;
+  return fetch(url,opt).then(function(r){clearTimeout(timer);return r;},function(e){clearTimeout(timer);
+    throw new Error(e&&e.name==="AbortError"?"The server did not answer in time.":"The server could not be reached."); });
+}
 async function cloudError(r){ var j={}; try{ j=await r.json(); }catch(e){} return new Error(j.error||("The server answered with error "+r.status+".")); }
 async function cloudPush(){
   if(!cloud.on) return; cloudSay("saving","Saving to the cloud…");
-  try{ var r=await fetch("/api/training",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(pack())});
+  try{ var r=await ask("/api/training",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify(pack())});
     if(!r.ok) throw await cloudError(r);
     cloudSay("synced","Saved to the cloud at "+new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})+".");
   }catch(e){ cloudSay("error",String(e.message||e)); }
 }
 function cloudQueue(){ if(!cloud.on) return; clearTimeout(cloud.timer); cloud.timer=setTimeout(cloudPush,1500); }
 async function cloudPull(){
-  try{ var r=await fetch("/api/training",{cache:"no-store"});
+  try{ var r=await ask("/api/training",{cache:"no-store"});
     if(r.status===404){ if(S.updated) await cloudPush(); else cloudSay("synced","Nothing is saved in the cloud yet."); return false; }
     if(!r.ok) throw await cloudError(r);
     var o=await r.json(), theirs=Number(o.updated)||0;
@@ -227,14 +233,17 @@ async function cloudPull(){
     cloudSay("synced","Up to date with the cloud."); return false;
   }catch(e){ cloudSay("error",String(e.message||e)); return false; }
 }
-async function cloudStart(){
-  try{ var r=await fetch("/.auth/me",{cache:"no-store"});
+var cloudReady=null;
+function cloudStart(){ cloudReady=cloudConnect(); return cloudReady; }
+function settled(){ return cloudReady?Promise.race([cloudReady.catch(function(){}),new Promise(function(r){setTimeout(r,12000);})]):Promise.resolve(); }
+async function cloudConnect(){
+  try{ var r=await ask("/.auth/me",{cache:"no-store"},15000);
     if(!r.ok||(r.headers.get("content-type")||"").indexOf("json")<0){ cloudSay("unavailable"); return false; }
     var j=await r.json();
     if(!j.clientPrincipal){ cloudSay("signedout"); return false; }
     cloud.user=j.clientPrincipal.userDetails||"your account";
   }catch(e){ cloudSay("unavailable"); return false; }
-  try{ var a=await fetch("/api/access",{cache:"no-store"}); if(!a.ok) throw await cloudError(a);
+  try{ var a=await ask("/api/access",{cache:"no-store"},30000); if(!a.ok) throw await cloudError(a);
     var who=await a.json(); cloud.role=who.role||""; cloud.people=who.role==="admin"?{admins:who.admins||[],members:who.members||[]}:null;
     if(!cloud.role){ cloudSay("noaccess"); return false; }
     cloud.on=true;
@@ -242,14 +251,14 @@ async function cloudStart(){
   return cloudPull();
 }
 async function setPeople(admins,members){
-  var r=await fetch("/api/access",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({admins:admins,members:members})});
+  var r=await ask("/api/access",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({admins:admins,members:members})});
   if(!r.ok) throw await cloudError(r);
   var who=await r.json(); cloud.people={admins:who.admins||[],members:who.members||[]}; cloudSay(cloud.state,cloud.msg); return cloud.people;
 }
-async function cloudCheck(){ var r=await fetch("/api/status",{cache:"no-store"}); if(!r.ok) throw await cloudError(r); return r.json(); }
+async function cloudCheck(){ var r=await ask("/api/status",{cache:"no-store"},30000); if(!r.ok) throw await cloudError(r); return r.json(); }
 async function uploadClip(c,ft){
   if(!cloud.on||!ft.raw||!ft.raw.frames.length) return false;
-  try{ var r=await fetch("/api/clips",{method:"POST",headers:{"content-type":"application/json"},
+  try{ var r=await ask("/api/clips",{method:"POST",headers:{"content-type":"application/json"},
       body:JSON.stringify({version:1,cue:{k:c.k,g:c.g,m:c.m},taken:new Date().toISOString(),secs:ft.secs,width:ft.raw.w,height:ft.raw.h,turned:ft.raw.rot,frames:ft.raw.frames})});
     return r.ok; }catch(e){ return false; }
 }
@@ -287,9 +296,10 @@ function deviceSpeak(text){
 }
 /* Speaks a sentence and resolves with a short note about which voice was used. */
 async function say(text){
+  if(cloud.state==="checking") await settled();
   if(cloud.on&&cloudVoice!==false){
     try{
-      if(!spoken[text]){ var r=await fetch("/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text})});
+      if(!spoken[text]){ var r=await ask("/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:text})});
         if(r.status===501){ cloudVoice=false; throw new Error("off"); }
         if(!r.ok) throw await cloudError(r);
         spoken[text]=URL.createObjectURL(await r.blob()); cloudVoice=true; }
@@ -299,6 +309,7 @@ async function say(text){
     }catch(e){ var why=String(e.message||e); if(why!=="off") return deviceSpeak(text)+" (Cloud voice problem: "+why+")"; }
   }
   var reason=!cloud.on?(cloud.state==="signedout"?"Not signed in, so the cloud voice was not tried."
+      :cloud.state==="checking"?"The cloud has not answered yet, so the cloud voice was not tried. Wait a few seconds and try again."
       :cloud.state==="unavailable"?"This address has no cloud voice."
       :"The cloud is not connected ("+(cloud.msg||cloud.state)+"), so the cloud voice was not tried.")
     :"The server reports that SPEECH_KEY or SPEECH_REGION is not set.";
