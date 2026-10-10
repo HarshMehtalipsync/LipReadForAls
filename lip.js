@@ -185,7 +185,7 @@ function shapeFit(obs,exp){
 function teachShape(k){
   return new Promise(function(res,rej){
     if(!cam.on){ rej(new Error("Start the camera first.")); return; }
-    setTimeout(function(){ var t1=performance.now(), rows=buf.filter(function(s){return s.m&&s.t>=t1-1400;});
+    setTimeout(function(){ var t1=performance.now(), rows=buf.filter(function(s){return s.m&&s.t>=t1-1400&&s.t<=t1;});
       if(rows.length<8){ rej(new Error("The face was not followed well enough. Try again.")); return; }
       var v=SF.map(function(f){ var a=rows.map(function(s){return s.m[f]/s.m[F];}).sort(num); return Math.round(a[Math.floor(a.length/2)]*10000)/10000; });
       if(!S.shapes) S.shapes={}; S.shapes[k]=v; save(); res(v); },2000);
@@ -206,7 +206,10 @@ async function freeRead(ft,ctx){
     }catch(e){ note="Language model problem: "+String(e.message||e); }
   } else note=(cloud.state==="signedout"?"Not signed in":"The cloud is not connected ("+(cloud.msg||cloud.state)+")")+", so it can only choose among the sentences on the Training page.";
   var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.exp=textShapes(g); c.fit=shapeFit(obs,c.exp); return c; }).sort(function(a,b){return a.fit-b.fit;});
-  return {shapes:obs,ranked:ranked,note:note,frames:ft.still.length,secs:ft.secs};
+  var sp=shapeSpread(), taught={}; SHAPES.forEach(function(s){ taught[s.k]=S.shapes[s.k].map(function(x){return Math.round(x*1000);}); });
+  return {shapes:obs,ranked:ranked,note:note,frames:ft.still.length,secs:ft.secs,
+    perFrame:ft.still.map(function(r){return shapeOf(r,sp);}).join(""),
+    rows:ft.still.map(function(r){return SF.map(function(i){return Math.round(r[i]*1000);}).join(",");}), taught:taught};
 }
 
 /* ---------- storage ---------- */
