@@ -56,11 +56,11 @@
     <h2>Cloud storage</h2>
     <div class="status" id="cloudStatus" role="status" aria-live="polite">Connecting to the cloud…</div>
     <div class="row">
-      <a class="btn small" id="inMs" href="/.auth/login/aad?prompt=select_account&post_login_redirect_uri=/train.html" hidden>Sign in with Microsoft</a>
+      <a class="btn small" id="inMs" href="/.auth/login/aad?post_login_redirect_uri=/train.html" hidden>Sign in with Microsoft</a>
       <a class="btn small ghost" id="inGh" href="/.auth/login/github?post_login_redirect_uri=/train.html" hidden>Sign in with GitHub</a>
       <a class="btn small quiet" id="out" href="/.auth/logout?post_logout_redirect_uri=/train.html" hidden>Sign out</a>
     </div>
-    <p class="note" id="switchNote">Signed in with the wrong account? <a href="https://login.microsoftonline.com/common/oauth2/v2.0/logout" target="_blank" rel="noopener">Sign out of Microsoft in this browser</a>, come back to this page, sign out here too, then sign in again.</p>
+    <p class="note" id="switchNote">Sign-in uses whichever Microsoft account this browser is already signed in to, without asking. To use a different account, open this site in a private tab and sign in there.</p>
     <div class="row"><button class="btn small ghost" id="check" type="button" hidden>Check what is stored</button></div>
     <ul class="hist" id="stored" hidden></ul>
     <p class="note">When signed in, training is saved to your private storage and loads on any device where someone on the access list signs in. Lip measurements and face-point positions are uploaded. Video is not.</p>

@@ -51,10 +51,10 @@
 
   <div class="row"><button class="btn small quiet" id="voiceTest" type="button">Test the voice</button>
     <button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button>
-    <a class="btn small quiet" id="signin" href="/.auth/login/aad?prompt=select_account&post_login_redirect_uri=/" hidden>Sign in to load saved training</a>
+    <a class="btn small quiet" id="signin" href="/.auth/login/aad?post_login_redirect_uri=/" hidden>Sign in to load saved training</a>
     <a class="btn small quiet" id="signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out</a></div>
   <p class="note" id="cloudNote"></p>
-  <p class="note">Wrong account? <a href="https://login.microsoftonline.com/common/oauth2/v2.0/logout" target="_blank" rel="noopener">Sign out of Microsoft in this browser</a>, come back, tap Sign out here, then sign in again.</p>
+  <p class="note">Sign-in uses whichever Microsoft account this browser is already signed in to. To use a different one, open this site in a private tab.</p>
 </main>
 
 <script src="fm/face_mesh.js"></script>
