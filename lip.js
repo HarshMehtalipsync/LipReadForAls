@@ -17,9 +17,11 @@ function d2(p,a,b){return Math.hypot(p[2*a]-p[2*b],p[2*a+1]-p[2*b+1]);}
 function measure(p){var o=new Float32Array(F+1);for(var i=0;i<F;i++)o[i]=d2(p,PAIRS[i][0],PAIRS[i][1]);o[F]=d2(p,ER,EL)+1e-6;return o;}
 
 /* ---------- lip measurements -> comparable sequence ---------- */
-function features(seq){
+/* Cleans one stretch of measurements: fills frames where the face was lost, puts everything on the
+   same scale, smooths it, and measures how much the lips move from frame to frame. */
+function prep(seq){
   seq=seq.slice(); var n=seq.length,i,j,k;
-  if(n<Math.round(0.5*FPS)||seq.filter(Boolean).length<Math.max(6,n*0.7)) return {err:"face"};
+  if(n<Math.round(0.4*FPS)||seq.filter(Boolean).length<Math.max(5,n*0.7)) return {err:"face"};
   for(i=0;i<n;i++){ if(seq[i]) continue;
     var a=-1,b=-1; for(k=i-1;k>=0;k--) if(seq[k]){a=k;break;} for(k=i+1;k<n;k++) if(seq[k]){b=k;break;}
     var o=new Float32Array(F+1);
@@ -30,22 +32,46 @@ function features(seq){
   seq=raw.map(function(r,i){ var s=0,c=0; for(var q=Math.max(0,i-half);q<=Math.min(n-1,i+half);q++){s+=raw[q][F];c++;} s/=c;
     var o=new Float32Array(F); for(var j=0;j<F;j++) o[j]=r[j]/s; return o; });
   var sm=seq.map(function(_,i){var o=new Float32Array(F),x=seq[Math.max(0,i-1)],y=seq[i],z=seq[Math.min(n-1,i+1)];for(var j=0;j<F;j++)o[j]=(x[j]+2*y[j]+z[j])/4;return o;});
-  var still=sm.map(function(r){return Float32Array.from(r);});
-  for(j=0;j<F;j++){ var col=sm.map(function(r){return r[j];}).sort(num), med=col[Math.floor(n/2)]; for(i=0;i<n;i++) sm[i][j]-=med; }
-  var op=sm.map(function(r){return r[0];}); if(Math.max.apply(null,op)-Math.min.apply(null,op)<0.03) return {err:"still"};
   var e=[0]; for(i=1;i<n;i++){var s=0;for(j=0;j<F;j++)s+=Math.abs(sm[i][j]-sm[i-1][j]);e.push(s);}
   var es=e.map(function(_,i){var s=0,c=0;for(var q=-2;q<=2;q++){if(e[i+q]!==undefined){s+=e[i+q];c++;}}return s/c;});
-  var peak=es.slice().sort(num)[Math.floor((n-1)*0.95)]||0, on=[];
-  es.forEach(function(x,i){if(x>0.2*peak)on.push(i);});
-  var pad=Math.round(0.15*FPS), a0=0, b0=n;
-  if(on.length){ a0=Math.max(0,on[0]-pad); b0=Math.min(n,on[on.length-1]+pad+1); if(b0-a0<Math.round(0.4*FPS)){a0=0;b0=n;} }
-  var cut=sm.slice(a0,b0), L=cut.length, rms=0;
+  return {sm:sm,es:es,n:n,peak:es.slice().sort(num)[Math.floor((n-1)*0.95)]||0};
+}
+/* The resting mouth: the typical measurements before the first movement and after the last one.
+   Everything is measured relative to this, so it does not matter how long he waits before or after. */
+function restOf(p,f0,f1){
+  var idx=[],i; for(i=0;i<f0;i++) idx.push(i); for(i=f1;i<p.n;i++) idx.push(i);
+  if(idx.length<4){ idx=[]; for(i=0;i<p.n;i++) idx.push(i); }
+  var base=new Float32Array(F);
+  for(var j=0;j<F;j++){ var col=idx.map(function(q){return p.sm[q][j];}).sort(num); base[j]=col[Math.floor(col.length/2)]; }
+  return base;
+}
+/* Lip measurements -> a sequence that can be compared with another mouthing of the same thing. */
+function features(seq,base){
+  var p=prep(seq); if(p.err) return p; var sm=p.sm,n=p.n,i,j;
+  var op=sm.map(function(r){return r[0];}); if(Math.max.apply(null,op)-Math.min.apply(null,op)<0.03) return {err:"still"};
+  var on=[]; p.es.forEach(function(x,i){if(x>0.2*p.peak)on.push(i);});
+  var pad=Math.round(0.15*FPS), a0=0, b0=n, f0=0, f1=n;
+  if(on.length){ f0=on[0]; f1=on[on.length-1]+1; a0=Math.max(0,f0-pad); b0=Math.min(n,f1+pad); if(b0-a0<Math.round(0.4*FPS)){a0=0;b0=n;} }
+  if(!base) base=restOf(p,f0,f1);
+  var still=sm.slice(a0,b0).map(function(r){return Float32Array.from(r);});
+  var cut=sm.slice(a0,b0).map(function(r){var o=new Float32Array(F);for(var q=0;q<F;q++)o[q]=r[q]-base[q];return o;}), L=cut.length, rms=0;
   for(i=0;i<L;i++) for(j=0;j<F;j++) rms+=cut[i][j]*cut[i][j];
   rms=Math.sqrt(rms/(L*F))+1e-6;
   var out=[];
   for(i=0;i<L;i++){ var r=new Float32Array(F*2), pv=cut[Math.max(0,i-1)], nx=cut[Math.min(L-1,i+1)];
     for(j=0;j<F;j++){ r[j]=cut[i][j]/rms; r[F+j]=(nx[j]-pv[j])/rms*1.5; } out.push(r); }
-  return {seq:out,secs:L/FPS,still:still.slice(a0,b0)};
+  return {seq:out,secs:L/FPS,still:still};
+}
+/* Splits one recording into separately mouthed words, using the pauses between them. */
+function splitWords(seq){
+  var p=prep(seq); if(p.err||p.peak<=0) return [];
+  var runs=[],s=-1,i; for(i=0;i<=p.n;i++){ if(i<p.n&&p.es[i]>0.2*p.peak){ if(s<0) s=i; } else if(s>=0){ runs.push([s,i]); s=-1; } }
+  var gap=Math.round(0.2*FPS), merged=[];
+  runs.forEach(function(r){ var l=merged[merged.length-1]; if(l&&r[0]-l[1]<gap) l[1]=r[1]; else merged.push(r.slice()); });
+  merged=merged.filter(function(r){return r[1]-r[0]>=Math.round(0.15*FPS);}); if(!merged.length) return [];
+  var base=restOf(p,merged[0][0],merged[merged.length-1][1]), parts=[];
+  merged.forEach(function(r){ var f=features(seq.slice(Math.max(0,r[0]-4),Math.min(p.n,r[1]+4)),base); if(!f.err) parts.push(f); });
+  return parts;
 }
 function dist(a,b){
   var n=a.length,m=b.length,w=Math.ceil(0.25*Math.max(n,m))+2,INF=1e18,prev=new Float64Array(m+1).fill(INF),cur=new Float64Array(m+1);
@@ -215,20 +241,21 @@ async function freeRead(ft,ctx){
 /* ---------- storage ---------- */
 function pack(){
   var b={}; S.cues.forEach(function(c){ b[c.k]=clips(c).map(function(s){return s.map(function(r){return Array.prototype.map.call(r,function(x){return Math.round(x*1000)/1000;});});}); });
-  return {version:4,updated:S.updated,cues:S.cues,bank:b,shapes:S.shapes||null};
+  return {version:4,fv:2,updated:S.updated,cues:S.cues,bank:b,shapes:S.shapes||null};
 }
 function unpack(o){
   if(!o||!Array.isArray(o.cues)) return false;
-  var cues=[],bank={};
+  var cues=[],bank={},cleared=false;
   o.cues.forEach(function(c){ if(!c||typeof c.k!=="string"||typeof c.g!=="string"||!c.g.trim()) return;
     cues.push({k:c.k,g:c.g.slice(0,120),m:String(c.m||"").slice(0,120)}); bank[c.k]=[];
+    if(o.fv!==2){ if(((o.bank||{})[c.k]||[]).length) cleared=true; return; }
     ((o.bank||{})[c.k]||[]).forEach(function(s){
       if(Array.isArray(s)&&s.length>5&&s.every(function(r){return Array.isArray(r)&&r.length===F*2&&r.every(function(x){return typeof x==="number"&&isFinite(x);});}))
         bank[c.k].push(s.map(function(r){return Float32Array.from(r);})); }); });
   if(!cues.length) return false;
   var sh=null; if(o.shapes&&typeof o.shapes==="object"){ sh={}; SHAPES.forEach(function(s){ var v=o.shapes[s.k];
     if(Array.isArray(v)&&v.length===SF.length&&v.every(function(x){return typeof x==="number"&&isFinite(x);})) sh[s.k]=v; }); }
-  S.cues=cues; S.bank=bank; S.shapes=sh; S.updated=Number(o.updated)||0; return true;
+  S.cues=cues; S.bank=bank; S.shapes=sh; S.updated=Number(o.updated)||0; if(cleared) S.cleared=true; return true;
 }
 function save(keep){
   if(!keep) S.updated=Date.now();
@@ -242,7 +269,7 @@ function load(){
 }
 function addClip(c,seq){ var b=S.bank[c.k]||(S.bank[c.k]=[]); b.push(seq); if(b.length>MAXCLIPS) b.shift(); var ok=save(); review(); return ok; }
 function popClip(c){ clips(c).pop(); save(); review(); }
-function addCue(g,m){ var c={k:"c"+Date.now().toString(36),g:g.trim().slice(0,120),m:(m||"").trim().slice(0,120)}; S.cues.push(c); S.bank[c.k]=[]; save(); return c; }
+function addCue(g,m){ var c={k:"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),g:g.trim().slice(0,120),m:(m||"").trim().slice(0,120)}; S.cues.push(c); S.bank[c.k]=[]; save(); return c; }
 function removeCue(c){ S.cues=S.cues.filter(function(x){return x!==c;}); delete S.bank[c.k]; save(); review(); }
 
 /* ---------- cloud copy: only when hosted on Azure Static Web Apps and signed in ----------
@@ -395,10 +422,11 @@ function fire(t0,t1,manual){
   if(ft.err){ if(o.miss) o.miss(ft.err,manual); return; }
   ft.raw={w:wc.width,h:wc.height,rot:rot.deg,frames:buf.filter(function(s){return s.p&&s.t>=t0&&s.t<=t1;}).map(function(s){
     return {t:Math.round(s.t-t0),p:Array.prototype.map.call(s.p,function(x){return Math.round(x*10)/10;})}; })};
+  ft.parts=o.words?splitWords(rs):[];
   det.cool=t1+1200; if(o.segment) o.segment(ft,manual);
 }
 function onSample(t,pts){
-  var m=pts?measure(pts):null; buf.push({t:t,m:m,p:pts}); while(buf.length&&buf[0].t<t-12000) buf.shift();
+  var m=pts?measure(pts):null; buf.push({t:t,m:m,p:pts}); while(buf.length&&buf[0].t<t-20000) buf.shift();
   if(!m){ det.ema=null; return; }
   var mm=new Float32Array(F); for(var q=0;q<F;q++) mm[q]=m[q]/m[F];
   if(!det.ema){ det.ema=mm; det.lastT=t; return; }
@@ -510,14 +538,14 @@ function stop(){
 function readLast(){ prime(); var now=performance.now(); det.state="idle"; det.onCount=0; fire(now-3000,now,true); }
 var capT=0;
 function beginCapture(){ prime(); capT=performance.now(); det.state="idle"; det.onCount=0; }
-function endCapture(){ if(!capT) return; var now=performance.now(), t0=Math.max(capT-300,now-9000); capT=0; fire(t0,now,true); }
+function endCapture(){ if(!capT) return; var now=performance.now(), t0=Math.max(capT-300,now-16000); capT=0; fire(t0,now,true); }
 function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+400; }
 
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
-  clips:clips,taught:taught,review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
+  clips:clips,taught:taught,wasCleared:function(){return !!S.cleared;},review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
   cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
   shapeList:SHAPES,shapesReady:shapesReady,hasShape:function(k){return !!(S.shapes&&S.shapes[k]);},teachShape:teachShape,freeRead:freeRead,textShapes:textShapes,shapeFit:shapeFit,liveShape:liveShape,shapeCheck:shapeCheck,isGujarati:isGujarati,
   letters:function(seq){ var m={}; SHAPES.forEach(function(s){m[s.k]=s.g;}); return seq.map(function(k){return m[k];}).join(" · ")||"none"; },
   speak:speak,say:say,retryVoice:retryVoice,voices:function(){loadVoices();return voices.map(function(v){return v.lang;});},prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},
-  _onSample:onSample,_fakeOn:function(v){cam.on=v;},_setOpts:function(o){cam.o=o;},_fire:fire,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
+  _onSample:onSample,_fakeOn:function(v){cam.on=v;},_setOpts:function(o){cam.o=o;},_fire:fire,_features:features,_split:splitWords,_dist:dist,_measure:measure,_reset:function(){if(fm&&fm.reset)fm.reset();},_debug:function(){return {deg:rot.deg,miss:rot.miss,locked:rot.locked,n:buf.length,found:buf.filter(function(s){return s.m;}).length,span:buf.length?buf[buf.length-1].t-buf[0].t:0};},_track:async function(cv){await tracker();return track(cv);}};
 })();

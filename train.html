@@ -24,8 +24,9 @@
   </section>
 
   <section class="step">
-    <h2>Sentences</h2>
-    <p class="note">Press Teach, then mouth the sentence once without sound: mouth closed, mouth it, mouth closed. It saves when the mouthing stops. A sentence with no clips can only be recognised from mouth shapes, which is much less reliable than teaching it.</p>
+    <h2>Words and sentences</h2>
+    <p class="note" id="clearedNote" hidden style="color:var(--warn)">The way clips are compared was improved, so earlier clips were cleared. The words and sentences are still here. Teach each one again.</p>
+    <p class="note">For word-by-word reading, add single words and teach each one 3 to 5 times. Press Teach, then mouth it once without sound: mouth closed, mouth it, mouth closed. It saves when the mouthing stops. A sentence with no clips can only be recognised from mouth shapes, which is much less reliable than teaching it.</p>
     <div class="cues" id="cues"></div>
     <div class="status" id="status" role="status" aria-live="polite"></div>
     <p class="note" id="selfCheck" role="status"></p>
@@ -41,9 +42,9 @@
   </section>
 
   <section class="step">
-    <h2>Add a sentence</h2>
+    <h2>Add a word or sentence</h2>
     <form id="addForm" class="row" novalidate>
-      <div class="field"><label for="newG">The sentence exactly as it is mouthed</label><input class="g" id="newG" autocomplete="off"></div>
+      <div class="field"><label for="newG">The word or sentence exactly as it is mouthed</label><input class="g" id="newG" autocomplete="off"></div>
       <div class="field"><label for="newM">Meaning (optional)</label><input id="newM" autocomplete="off"></div>
       <button class="btn" type="submit">Add</button>
     </form>
@@ -55,10 +56,11 @@
     <h2>Cloud storage</h2>
     <div class="status" id="cloudStatus" role="status" aria-live="polite">Connecting to the cloud…</div>
     <div class="row">
-      <a class="btn small" id="inMs" href="/.auth/login/aad?post_login_redirect_uri=/train.html" hidden>Sign in with Microsoft</a>
+      <a class="btn small" id="inMs" href="/.auth/login/aad?prompt=select_account&post_login_redirect_uri=/train.html" hidden>Sign in with Microsoft</a>
       <a class="btn small ghost" id="inGh" href="/.auth/login/github?post_login_redirect_uri=/train.html" hidden>Sign in with GitHub</a>
       <a class="btn small quiet" id="out" href="/.auth/logout?post_logout_redirect_uri=/train.html" hidden>Sign out</a>
     </div>
+    <p class="note" id="switchNote">Signed in with the wrong account? <a href="https://login.microsoftonline.com/common/oauth2/v2.0/logout" target="_blank" rel="noopener">Sign out of Microsoft in this browser</a>, come back to this page, sign out here too, then sign in again.</p>
     <div class="row"><button class="btn small ghost" id="check" type="button" hidden>Check what is stored</button></div>
     <ul class="hist" id="stored" hidden></ul>
     <p class="note">When signed in, training is saved to your private storage and loads on any device where someone on the access list signs in. Lip measurements and face-point positions are uploaded. Video is not.</p>
@@ -90,7 +92,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=13"></script>
+<script src="lip.js?v=14"></script>
 <script>
 (function(){
 "use strict";
@@ -123,6 +125,7 @@ setInterval(function(){
   var k=Lip.liveShape(); el.hidden=false; el.textContent="Mouth shape it sees right now: "+(k?Lip.letters([k]):"no face");
 },200);
 function render(){
+  $("clearedNote").hidden=!Lip.wasCleared();
   renderShapes();
   var close=Lip.shapeCheck(); $("shapeWarn").textContent=!Lip.shapesReady()?"":close.length?"These taught shapes look too alike to tell apart: "+close.join("; ")+". Teach them again with a bigger difference."
     :"All five shapes are taught and look different from each other. With the camera on, make each shape and check that the line above follows you.";

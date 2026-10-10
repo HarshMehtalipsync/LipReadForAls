@@ -17,7 +17,14 @@
     <p class="note" id="voice" role="status"></p>
   </section>
 
-  <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="free" style="width:22px;height:22px;accent-color:var(--accent)"><span>Always read from mouth shapes (experimental)</span></label>
+  <div>
+    <div class="row" role="group" aria-label="How to read" id="modes">
+      <button class="btn small" type="button" data-mode="sentence">Whole sentences</button>
+      <button class="btn small" type="button" data-mode="words">Word by word</button>
+      <button class="btn small" type="button" data-mode="shapes">Mouth shapes</button>
+    </div>
+    <p class="note" id="modeHelp" style="margin-top:8px"></p>
+  </div>
   <button class="btn big" id="rec" type="button">Record</button>
   <div class="status" id="status" role="status" aria-live="polite">Camera is off.</div>
 
@@ -44,12 +51,14 @@
 
   <div class="row"><button class="btn small quiet" id="voiceTest" type="button">Test the voice</button>
     <button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button>
-    <a class="btn small quiet" id="signin" href="/.auth/login/aad?post_login_redirect_uri=/" hidden>Sign in to load saved training</a></div>
+    <a class="btn small quiet" id="signin" href="/.auth/login/aad?prompt=select_account&post_login_redirect_uri=/" hidden>Sign in to load saved training</a>
+    <a class="btn small quiet" id="signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out</a></div>
   <p class="note" id="cloudNote"></p>
+  <p class="note">Wrong account? <a href="https://login.microsoftonline.com/common/oauth2/v2.0/logout" target="_blank" rel="noopener">Sign out of Microsoft in this browser</a>, come back, tap Sign out here, then sign in again.</p>
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=13"></script>
+<script src="lip.js?v=14"></script>
 <script>
 (function(){
 "use strict";
@@ -74,14 +83,15 @@ function alts(list){
   $("altWrap").hidden=!list.length;
 }
 function begin(){ mode="recording"; button(); Lip.beginCapture(); status("Recording. Mouth the sentence, then press Stop.");
-  clearTimeout(timer); timer=setTimeout(function(){ if(mode==="recording") end(); },7000); }
+  clearTimeout(timer); timer=setTimeout(function(){ if(mode==="recording") end(); },readMode==="words"?14000:7000); }
 function end(){ clearTimeout(timer); mode="ready"; button(); status("Reading…"); Lip.endCapture(); }
 var opts={video:$("cam"),view:$("view"),auto:false,
   step:function(msg){ status(msg); },
   status:function(msg,bad){ if(mode==="ready") status(msg,bad); },
   miss:function(err){ show(err==="face"?"I could not see the face well enough. Try again.":"I did not see any mouthing. Try again.","",true); status("Ready."); },
   segment:function(ft){
-    if($("free").checked){ freeRead(ft,""); return; }
+    if(readMode==="words"){ wordRead(ft); return; }
+    if(readMode==="shapes"){ freeRead(ft,""); return; }
     $("diagWrap").hidden=true;
     $("altTitle").textContent="Not right? Tap the one that was meant";
     var r=Lip.classify(ft.seq);
@@ -91,7 +101,39 @@ var opts={video:$("cam"),view:$("view"),auto:false,
     if(r.far){ show("No clear match.","",true); alts(r.ranked.slice(0,3)); $("voice").textContent=why(); status("Ready."); return; }
     say(r.ranked[0].c,true); alts(r.ranked.slice(1,4)); status(r.close?"Ready. That one was close to the next match.":"Ready.");
   }};
-var recent=[], lastDiag="";
+var recent=[], lastDiag="", readMode="sentence", picks=[];
+var HELP={sentence:"Mouth one taught sentence. It picks the closest.",
+  words:"Mouth taught words one at a time, in any order, closing your mouth for about half a second between words. It reads each word and joins them.",
+  shapes:"Experimental. Mouth anything. It guesses from five coarse mouth shapes, so expect it to be wrong often."};
+function setMode(m){
+  readMode=HELP[m]?m:"sentence"; opts.words=readMode==="words";
+  [].forEach.call(document.querySelectorAll("#modes button"),function(b){ var on=b.dataset.mode===readMode; b.classList.toggle("ghost",!on); b.setAttribute("aria-pressed",on?"true":"false"); });
+  $("modeHelp").textContent=HELP[readMode]; try{ localStorage.setItem("lipcue.mode",readMode); }catch(e){}
+}
+[].forEach.call(document.querySelectorAll("#modes button"),function(b){ b.addEventListener("click",function(){ setMode(b.dataset.mode); }); });
+/* Word by word: every pause-separated piece is matched to a taught word. Tapping a word swaps it for the next best. */
+function wordRead(ft){
+  $("diagWrap").hidden=true;
+  if(Lip.taught()<2){ show("Teach at least 2 words on the Training page first.","",true); $("voice").textContent=why(); status("Ready."); return; }
+  var parts=ft.parts||[];
+  if(!parts.length){ show("I did not see any words. Mouth each word clearly, with your mouth closed in between.","",true); status("Ready."); return; }
+  picks=parts.map(function(pt){ var r=Lip.classify(pt.seq); return {ranked:r.ranked.slice(0,4),i:0,far:r.far,close:r.close}; });
+  drawWords(true); status("Ready.");
+}
+function drawWords(aloud){
+  var text=picks.map(function(pk){return pk.ranked[pk.i].c.g;}).join(" ");
+  var unsure=picks.filter(function(pk){return pk.far||pk.close;}).length;
+  show(text,picks.length+(picks.length===1?" word":" words")+" seen."+(unsure?" Unsure about "+unsure+". Tap a word below to change it.":" Tap a word below to change it."),false);
+  $("altTitle").textContent="Words seen, in order";
+  var box=$("alts"); box.textContent="";
+  picks.forEach(function(pk,n){ var row=document.createElement("div"); row.className="row"; var lab=document.createElement("span"); lab.className="note"; lab.textContent=(n+1)+".";
+    row.append(lab);
+    pk.ranked.forEach(function(s,j){ var b=document.createElement("button"); b.type="button"; b.className="btn small"+(j===pk.i?"":" ghost"); b.lang="gu"; b.style.fontFamily="var(--guj)"; b.style.fontSize="17px"; b.textContent=s.c.g;
+      b.addEventListener("click",function(){ pk.i=j; drawWords(true); }); row.append(b); });
+    box.append(row); });
+  $("altWrap").hidden=false;
+  if(aloud){ $("voice").textContent=""; Lip.say(text).then(function(note){ $("voice").textContent=note; }); recent.push(text); if(recent.length>5) recent.shift(); }
+}
 function why(){
   var all=Lip.state.cues, typed=all.filter(function(c){return Lip.clips(c).length===0;}).length, few=all.filter(function(c){var n=Lip.clips(c).length;return n>0&&n<2;}).length;
   var s="You have "+all.length+" sentences: "+(all.length-typed-few)+" taught with clips"+(few?", "+few+" with only one clip (needs two)":"")+", "+typed+" typed only. ";
@@ -140,10 +182,13 @@ $("voiceTest").addEventListener("click",function(){
   var c=Lip.state.cues[0]; Lip.say(c?c.g:"તમે કેમ છો?").then(function(note){ var v=Lip.voices();
     $("voice").textContent=note+" This device offers "+v.length+" voices"+(v.length?", including "+(v.filter(function(l){return /^(gu|hi)/i.test(l);}).join(", ")||"none for Gujarati or Hindi"):"")+"."; });
 });
-function idle(){ if(mode!=="recording") show(Lip.taught()<2?"Nothing is taught yet. Open the Training page and teach at least 2 sentences.":"Press Record, mouth a sentence without sound, then press Stop.","",true); }
-Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout"; $("cloudNote").textContent=c.state==="error"?"Signed in as "+c.user+". Cloud problem: "+c.msg:c.state==="noaccess"?"Signed in as "+c.user+", but this account is not on the access list.":(c.on?c.msg:""); });
+function idle(){ if(mode!=="recording") show(Lip.wasCleared()&&Lip.taught()<2?"The way clips are compared was improved, so earlier clips were cleared. Teach each one again on the Training page."
+  :Lip.taught()<2?"Nothing is taught yet. Open the Training page and teach at least 2 words or sentences.":"Press Record, mouth it without sound, then press Stop.","",true); }
+Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout";
+  var inNow=!!c.user&&c.state!=="signedout"&&c.state!=="unavailable"; $("signout").hidden=!inNow; $("signout").textContent=inNow?"Sign out ("+c.user+")":"Sign out"; $("cloudNote").textContent=c.state==="error"?"Signed in as "+c.user+". Cloud problem: "+c.msg:c.state==="noaccess"?"Signed in as "+c.user+", but this account is not on the access list.":(c.on?c.msg:""); });
 $("cloudNote").textContent="Connecting to the cloud…";
 Lip.load(); idle();
+var saved="sentence"; try{ saved=localStorage.getItem("lipcue.mode")||"sentence"; }catch(e){} setMode(saved);
 Lip.cloudStart().then(function(pulled){ if(pulled) idle(); });
 window.__app={opts:opts};
 })();
