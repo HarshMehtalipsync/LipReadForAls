@@ -51,14 +51,13 @@
 
   <div class="row"><button class="btn small quiet" id="voiceTest" type="button">Test the voice</button>
     <button class="btn small quiet" id="off" type="button" hidden>Turn camera off</button>
-    <a class="btn small quiet" id="signin" href="/.auth/login/aad?post_login_redirect_uri=/" hidden>Sign in to load saved training</a>
-    <a class="btn small quiet" id="signout" href="/.auth/logout?post_logout_redirect_uri=/" hidden>Sign out</a></div>
+    <a class="btn small quiet" id="signin" href="train.html" hidden>Sign in on the Training page</a>
+    <button class="btn small quiet" id="signout" type="button" hidden>Sign out</button></div>
   <p class="note" id="cloudNote"></p>
-  <p class="note">Sign-in uses whichever Microsoft account this browser is already signed in to. To use a different one, open this site in a private tab.</p>
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=14"></script>
+<script src="lip.js?v=15"></script>
 <script>
 (function(){
 "use strict";
@@ -184,8 +183,12 @@ $("voiceTest").addEventListener("click",function(){
 });
 function idle(){ if(mode!=="recording") show(Lip.wasCleared()&&Lip.taught()<2?"The way clips are compared was improved, so earlier clips were cleared. Teach each one again on the Training page."
   :Lip.taught()<2?"Nothing is taught yet. Open the Training page and teach at least 2 words or sentences.":"Press Record, mouth it without sound, then press Stop.","",true); }
-Lip.onCloud(function(c){ $("signin").hidden=c.state!=="signedout";
-  var inNow=!!c.user&&c.state!=="signedout"&&c.state!=="unavailable"; $("signout").hidden=!inNow; $("signout").textContent=inNow?"Sign out ("+c.user+")":"Sign out"; $("cloudNote").textContent=c.state==="error"?"Signed in as "+c.user+". Cloud problem: "+c.msg:c.state==="noaccess"?"Signed in as "+c.user+", but this account is not on the access list.":(c.on?c.msg:""); });
+Lip.onCloud(function(c){
+  $("signin").hidden=c.state!=="signedout"; $("signout").hidden=!c.user; $("signout").textContent=c.user?"Sign out ("+c.user+")":"Sign out";
+  $("cloudNote").textContent=c.state==="error"?"Signed in as "+c.user+". Cloud problem: "+c.msg:c.state==="signedout"?(c.msg||"Not signed in. Using the training saved in this browser.")
+    :c.state==="notsetup"?"Sign-in is not set up yet.":(c.on?c.msg:"");
+});
+$("signout").addEventListener("click",function(){ Lip.signOut(); });
 $("cloudNote").textContent="Connecting to the cloud…";
 Lip.load(); idle();
 var saved="sentence"; try{ saved=localStorage.getItem("lipcue.mode")||"sentence"; }catch(e){} setMode(saved);

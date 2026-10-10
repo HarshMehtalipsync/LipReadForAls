@@ -8,6 +8,7 @@ app.http("health", {
     jsonBody: {
       ok: true,
       storageConfigured: Boolean(process.env.STORAGE_CONNECTION),
+      signInConfigured: Boolean(process.env.SESSION_SECRET && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD),
       speechConfigured: Boolean(process.env.SPEECH_KEY && process.env.SPEECH_REGION),
       languageModelConfigured: Boolean(process.env.AZURE_OPENAI_ENDPOINT && process.env.AZURE_OPENAI_KEY && process.env.AZURE_OPENAI_DEPLOYMENT)
     }

@@ -276,8 +276,11 @@ function removeCue(c){ S.cues=S.cues.filter(function(x){return x!==c;}); delete 
    Training is saved under the signed-in user's own folder. The newest copy wins, by save time. */
 var cloud={on:false,user:"",role:"",people:null,state:"checking",msg:"",timer:0,listener:null};
 function cloudSay(state,msg){ cloud.state=state; cloud.msg=msg||""; if(cloud.listener) cloud.listener({state:state,msg:cloud.msg,user:cloud.user,on:cloud.on,role:cloud.role,people:cloud.people}); }
+var SESSION="lipcue.session";
+function token(){ try{ return localStorage.getItem(SESSION)||""; }catch(e){ return ""; } }
 function ask(url,opt,ms){
   var c=new AbortController(), timer=setTimeout(function(){c.abort();},ms||20000); opt=opt||{}; opt.signal=c.signal;
+  var tk=token(); if(tk){ opt.headers=opt.headers||{}; opt.headers["x-lip-session"]=tk; }
   return fetch(url,opt).then(function(r){clearTimeout(timer);return r;},function(e){clearTimeout(timer);
     throw new Error(e&&e.name==="AbortError"?"The server did not answer in time.":"The server could not be reached."); });
 }
@@ -304,23 +307,34 @@ var cloudReady=null;
 function cloudStart(){ cloudReady=cloudConnect(); return cloudReady; }
 function settled(){ return cloudReady?Promise.race([cloudReady.catch(function(){}),new Promise(function(r){setTimeout(r,12000);})]):Promise.resolve(); }
 async function cloudConnect(){
-  try{ var r=await ask("/.auth/me",{cache:"no-store"},15000);
-    if(!r.ok||(r.headers.get("content-type")||"").indexOf("json")<0){ cloudSay("unavailable"); return false; }
-    var j=await r.json();
-    if(!j.clientPrincipal){ cloudSay("signedout"); return false; }
-    cloud.user=j.clientPrincipal.userDetails||"your account";
-  }catch(e){ cloudSay("unavailable"); return false; }
-  try{ var a=await ask("/api/access",{cache:"no-store"},30000); if(!a.ok) throw await cloudError(a);
-    var who=await a.json(); cloud.role=who.role||""; cloud.people=who.role==="admin"?{admins:who.admins||[],members:who.members||[]}:null;
-    if(!cloud.role){ cloudSay("noaccess"); return false; }
-    cloud.on=true;
+  cloud.on=false; cloud.role=""; cloud.people=null;
+  if(!token()){   // not signed in: find out whether this address has the cloud at all
+    try{ var h=await ask("/api/health",{cache:"no-store"},20000);
+      if(!h.ok||(h.headers.get("content-type")||"").indexOf("json")<0){ cloudSay("unavailable"); return false; }
+      var hj=await h.json(); cloud.user="";
+      cloudSay(hj.signInConfigured?"signedout":"notsetup"); }catch(e){ cloudSay("unavailable"); }
+    return false;
+  }
+  try{ var a=await ask("/api/access",{cache:"no-store"},30000);
+    if(a.status===401){ try{ localStorage.removeItem(SESSION); }catch(e){} cloud.user=""; cloudSay("signedout","Your sign-in ran out. Sign in again."); return false; }
+    if(a.status===403){ var gone=await cloudError(a); try{ localStorage.removeItem(SESSION); }catch(e){} cloud.user=""; cloudSay("signedout",String(gone.message||"That account no longer has access.")); return false; }
+    if(a.status===404){ cloudSay("unavailable"); return false; }
+    if(!a.ok) throw await cloudError(a);
+    var who=await a.json(); cloud.user=who.name||""; cloud.role=who.role||""; cloud.people=who.people||null; cloud.on=true;
   }catch(e){ cloudSay("error",String(e.message||e)); return false; }
   return cloudPull();
 }
-async function setPeople(admins,members){
-  var r=await ask("/api/access",{method:"PUT",headers:{"content-type":"application/json"},body:JSON.stringify({admins:admins,members:members})});
+async function signIn(email,password){
+  var r=await ask("/api/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email:email,password:password})},30000);
   if(!r.ok) throw await cloudError(r);
-  var who=await r.json(); cloud.people={admins:who.admins||[],members:who.members||[]}; cloudSay(cloud.state,cloud.msg); return cloud.people;
+  var j=await r.json(); try{ localStorage.setItem(SESSION,j.token); }catch(e){ throw new Error("This browser would not keep the sign-in."); }
+  return cloudStart();
+}
+function signOut(){ try{ localStorage.removeItem(SESSION); }catch(e){} cloud.on=false; cloud.user=""; cloud.role=""; cloud.people=null; cloudVoice=null; cloudSay("signedout"); }
+async function setPerson(q){
+  var r=await ask("/api/access",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(q)});
+  if(!r.ok) throw await cloudError(r);
+  var who=await r.json(); cloud.people=who.people||null; cloudSay(cloud.state,cloud.msg); return cloud.people;
 }
 async function cloudCheck(){ var r=await ask("/api/status",{cache:"no-store"},30000); if(!r.ok) throw await cloudError(r); return r.json(); }
 async function uploadClip(c,ft){
@@ -375,7 +389,7 @@ async function say(text){
       return "Spoken with the cloud Gujarati voice.";
     }catch(e){ var why=String(e.message||e); if(why!=="off") return deviceSpeak(text)+" (Cloud voice problem: "+why+")"; }
   }
-  var reason=!cloud.on?(cloud.state==="signedout"?"Not signed in, so the cloud voice was not tried."
+  var reason=!cloud.on?(cloud.state==="signedout"||cloud.state==="notsetup"?"Not signed in, so the cloud voice was not tried."
       :cloud.state==="checking"?"The cloud has not answered yet, so the cloud voice was not tried. Wait a few seconds and try again."
       :cloud.state==="unavailable"?"This address has no cloud voice."
       :"The cloud is not connected ("+(cloud.msg||cloud.state)+"), so the cloud voice was not tried.")
@@ -543,7 +557,7 @@ function rearm(){ det.state="idle"; det.onCount=0; det.cool=performance.now()+40
 
 window.Lip={state:S,load:load,save:save,pack:pack,unpack:function(o){var ok=unpack(o); if(ok){save();review();} return ok;},
   clips:clips,taught:taught,wasCleared:function(){return !!S.cleared;},review:review,classify:classify,addClip:addClip,popClip:popClip,addCue:addCue,removeCue:removeCue,
-  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPeople:setPeople,cloudCheck:cloudCheck,
+  cloudStart:cloudStart,onCloud:function(f){cloud.listener=f;},cloudOn:function(){return cloud.on;},uploadClip:uploadClip,setPerson:setPerson,signIn:signIn,signOut:signOut,cloudCheck:cloudCheck,
   shapeList:SHAPES,shapesReady:shapesReady,hasShape:function(k){return !!(S.shapes&&S.shapes[k]);},teachShape:teachShape,freeRead:freeRead,textShapes:textShapes,shapeFit:shapeFit,liveShape:liveShape,shapeCheck:shapeCheck,isGujarati:isGujarati,
   letters:function(seq){ var m={}; SHAPES.forEach(function(s){m[s.k]=s.g;}); return seq.map(function(k){return m[k];}).join(" · ")||"none"; },
   speak:speak,say:say,retryVoice:retryVoice,voices:function(){loadVoices();return voices.map(function(v){return v.lang;});},prime:prime,start:start,stop:stop,readLast:readLast,rearm:rearm,beginCapture:beginCapture,endCapture:endCapture,rotation:function(){return rot.deg;},isOn:function(){return cam.on;},

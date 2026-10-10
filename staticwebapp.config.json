@@ -1,8 +1,4 @@
 {
-  "routes": [
-    { "route": "/api/health", "allowedRoles": ["anonymous"] },
-    { "route": "/api/*", "allowedRoles": ["authenticated"] }
-  ],
   "mimeTypes": { ".wasm": "application/wasm" },
   "platform": { "apiRuntime": "node:20" }
 }
