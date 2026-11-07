@@ -217,21 +217,40 @@ function teachShape(k){
       if(!S.shapes) S.shapes={}; S.shapes[k]=v; save(); res(v); },2000);
   });
 }
+/* A model suggestion whose shape fit is worse than this (the page shows it as below 65%) counts as a poor fit. */
+var ESCALATE_FIT=0.35;
 /* Ranks candidate sentences against what was mouthed. Candidates are his own sentences plus,
    when a language model is connected, its guesses for this shape sequence. */
 async function freeRead(ft,ctx){
   if(cloud.state==="checking") await settled();
   var obs=shapeSeq(ft.still), cands={}, note="";
   S.cues.forEach(function(c){ cands[c.g]={g:c.g,m:c.m,src:"list"}; });
+  function rank(){ return Object.keys(cands).map(function(g){ var c=cands[g]; if(!c.exp){ c.exp=textShapes(g); c.fit=shapeFit(obs,c.exp); } return c; }).sort(function(a,b){return a.fit-b.fit;}); }
+  /* Asks the server for sentences. level 0 = the cheap model, level 1 = the strong one. Returns the answer, or null when no model is set up. */
+  async function guess(level,avoid){
+    var r=await ask("/api/guess",{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({shapes:obs.join(" "),secs:ft.secs,recent:(ctx&&ctx.recent)||[],hour:new Date().getHours(),known:S.cues.map(function(c){return c.g;}),level:level,avoid:avoid||[]})},30000);
+    if(r.status===501) return null;
+    if(!r.ok) throw await cloudError(r);
+    var j=await r.json(), tier=j.tier==="strong"?"strong":"cheap";
+    (j.candidates||[]).forEach(function(g){ g=String(g||"").trim(); if(g&&!cands[g]&&/[઀-૿]/.test(g)) cands[g]={g:g,m:"",src:"model",tier:tier}; });
+    return j;
+  }
   if(cloud.on){
-    try{ var r=await ask("/api/guess",{method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({shapes:obs.join(" "),secs:ft.secs,recent:(ctx&&ctx.recent)||[],hour:new Date().getHours(),known:S.cues.map(function(c){return c.g;})})});
-      if(r.status===501) note="No language model is connected, so it can only choose among the sentences on the Training page.";
-      else if(!r.ok) throw await cloudError(r);
-      else { var j=await r.json(); (j.candidates||[]).forEach(function(g){ g=String(g||"").trim(); if(g&&!cands[g]&&/[઀-૿]/.test(g)) cands[g]={g:g,m:"",src:"model"}; }); }
+    try{ var j=await guess(0);
+      if(!j) note="No language model is connected, so it can only choose among the sentences on the Training page.";
+      else if(j.canEscalate){
+        // Cheapest first: only ask the stronger model when nothing so far (his own sentences or the cheap model's) fits well.
+        var best=rank()[0];
+        if(!best||best.fit>ESCALATE_FIT){
+          var tried=Object.keys(cands).filter(function(g){return cands[g].src==="model";}).slice(0,40);
+          try{ await guess(1,tried); note="The quick model's sentences did not fit well, so the stronger model was asked too."; }
+          catch(e){ note="The stronger model could not be reached: "+String(e.message||e); }
+        }
+      }
     }catch(e){ note="Language model problem: "+String(e.message||e); }
   } else note=(cloud.state==="signedout"?"Not signed in":"The cloud is not connected ("+(cloud.msg||cloud.state)+")")+", so it can only choose among the sentences on the Training page.";
-  var ranked=Object.keys(cands).map(function(g){ var c=cands[g]; c.exp=textShapes(g); c.fit=shapeFit(obs,c.exp); return c; }).sort(function(a,b){return a.fit-b.fit;});
+  var ranked=rank();
   var sp=shapeSpread(), taught={}; SHAPES.forEach(function(s){ taught[s.k]=S.shapes[s.k].map(function(x){return Math.round(x*1000);}); });
   return {shapes:obs,ranked:ranked,note:note,frames:ft.still.length,secs:ft.secs,
     perFrame:ft.still.map(function(r){return shapeOf(r,sp);}).join(""),

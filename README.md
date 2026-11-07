@@ -30,7 +30,9 @@ Settings on the Static Web App (Environment variables):
 | `ADMIN_PASSWORD` | The main admin's password |
 | `SESSION_SECRET` | Any long random text. Changing it signs everyone out. |
 | `SPEECH_KEY`, `SPEECH_REGION` | Optional: Azure Speech, for a Gujarati voice |
-| `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT` | Optional: a language model for the mouth-shape reader |
+| `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_KEY`, `AZURE_OPENAI_DEPLOYMENT` | Optional: a language model for the mouth-shape reader. Use a cheap, fast deployment here. |
+| `AZURE_OPENAI_DEPLOYMENT_STRONG` | Optional: a stronger, dearer deployment on the same resource. It is asked only when none of the cheap model's sentences fit the mouth shapes well, or when the cheap one fails. |
+| `AZURE_OPENAI_API_VERSION` | Optional: defaults to `2024-12-01-preview` |
 
 `/api/health` reports which of these are set. Passwords of created accounts are stored hashed. A sign-in lasts 30 days on a device and is kept in that browser's storage. This is deliberately simple: there is no lockout after wrong passwords and no password recovery by email.
 

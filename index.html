@@ -57,7 +57,7 @@
 </main>
 
 <script src="fm/face_mesh.js"></script>
-<script src="lip.js?v=15"></script>
+<script src="lip.js?v=16"></script>
 <script>
 (function(){
 "use strict";
@@ -147,7 +147,7 @@ function freeRead(ft,lead){
     var top=r.ranked.slice(0,3);
     show(top.length?top[0].g:"Nothing fits.","Best guess. Mouth shapes seen: "+r.shapes.map(function(k){return letters[k];}).join(" · "),!top.length);
     $("altTitle").textContent="Tap the one that was meant to speak it";
-    alts(top.map(function(c){ return {c:{g:c.g,m:(c.m?c.m+" · ":"")+(c.src==="model"?"suggested by the language model":"from the sentence list")+" · fit "+Math.max(0,Math.round((1-c.fit)*100))+"%"}}; }));
+    alts(top.map(function(c){ return {c:{g:c.g,m:(c.m?c.m+" · ":"")+(c.src==="model"?(c.tier==="strong"?"suggested by the stronger model":"suggested by the quick model"):"from the sentence list")+" · fit "+Math.max(0,Math.round((1-c.fit)*100))+"%"}}; }));
     $("voice").textContent=r.note; status("Ready.");
     $("diagWrap").hidden=false;
     $("diagTop").textContent=(lead||"")+"Saw these shapes, in order: "+Lip.letters(r.shapes)+". ("+r.frames+" frames over "+r.secs.toFixed(1)+" s, "+r.ranked.length+" sentences considered.)";
